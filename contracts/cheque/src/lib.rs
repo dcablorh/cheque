@@ -1,7 +1,12 @@
 #![no_std]
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, token, Address, BytesN, Env,
+    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, BytesN,
+    Env,
 };
+
+const LEDGERS_PER_DAY: u32 = 17_280; // ~5 seconds per ledger on Stellar
+const TTL_THRESHOLD: u32 = LEDGERS_PER_DAY * 14; // 14 days
+const TTL_EXTEND_TO: u32 = LEDGERS_PER_DAY * 35; // 35 days
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -12,37 +17,70 @@ pub enum Error {
     Unauthorized = 3,
     ChequeAlreadyExists = 4,
     ChequeNotFound = 5,
-    ChequeNotActive = 6,
-    ChequeAlreadyRedeemed = 7,
-    ChequeAlreadyRefunded = 8,
-    ChequeExpired = 9,
-    ChequeNotExpired = 10,
-    InvalidAmount = 11,
+    InvalidState = 6,
+    ChequeExpired = 7,
+    ChequeNotExpired = 8,
+    AmountOutOfBounds = 9,
+    LockExpired = 10,
+    LockNotExpired = 11,
+    DelayNotMet = 12,
+    DelayPassed = 13,
+    ContractPaused = 14,
+    InvalidLockDuration = 15,
+    NoPendingAdmin = 16,
+    InvalidExpiry = 17,
 }
 
 #[contracttype]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[repr(u32)]
-pub enum ChequeStatus {
+pub enum ChequeState {
     Active = 1,
-    Redeemed = 2,
-    Refunded = 3,
+    Locked = 2,
+    Redeemed = 3,
+    Cancelled = 4,
+    Refunded = 5,
 }
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ChequeRecord {
-    pub sender: Address,
-    pub amount_stroops: i128,
-    pub status: ChequeStatus,
+pub struct LockInfo {
+    pub to: Address,
+    pub locked_at: u64,
+    pub unlock_after: u64,
+    pub executable_after: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Cheque {
+    pub funder: Address,
+    pub refund_to: Address,
+    pub amount: i128,
     pub expires_at: u64,
+    pub state: ChequeState,
+    pub lock: Option<LockInfo>,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Config {
+    pub min_amount: i128,
+    pub max_amount: i128,
+    pub max_lock_secs: u64,
+    pub delay_threshold: i128,
+    pub delay_secs: u64,
+    pub paused: bool,
 }
 
 #[contracttype]
 pub enum DataKey {
     Admin,
+    PendingAdmin,
+    Authority,
+    Guardian,
     Token,
-    ClaimAuthority,
+    Config,
     Cheque(BytesN<32>),
 }
 
@@ -51,11 +89,13 @@ pub struct ChequeContract;
 
 #[contractimpl]
 impl ChequeContract {
-    pub fn initialize(
+    pub fn init(
         env: Env,
         admin: Address,
+        authority: Address,
+        guardian: Address,
         token: Address,
-        claim_authority: Address,
+        config: Config,
     ) -> Result<(), Error> {
         if env.storage().instance().has(&DataKey::Admin) {
             return Err(Error::AlreadyInitialized);
@@ -63,25 +103,47 @@ impl ChequeContract {
         admin.require_auth();
 
         env.storage().instance().set(&DataKey::Admin, &admin);
-        env.storage().instance().set(&DataKey::Token, &token);
         env.storage()
             .instance()
-            .set(&DataKey::ClaimAuthority, &claim_authority);
+            .set(&DataKey::Authority, &authority);
+        env.storage().instance().set(&DataKey::Guardian, &guardian);
+        env.storage().instance().set(&DataKey::Token, &token);
+        env.storage().instance().set(&DataKey::Config, &config);
+
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
 
         Ok(())
     }
 
     pub fn create_cheque(
         env: Env,
-        sender: Address,
+        funder: Address,
         cheque_id: BytesN<32>,
-        amount_stroops: i128,
+        refund_to: Address,
+        amount: i128,
         expires_at: u64,
     ) -> Result<(), Error> {
-        sender.require_auth();
+        let config: Config = env
+            .storage()
+            .instance()
+            .get(&DataKey::Config)
+            .ok_or(Error::NotInitialized)?;
 
-        if amount_stroops <= 0 {
-            return Err(Error::InvalidAmount);
+        if config.paused {
+            return Err(Error::ContractPaused);
+        }
+
+        funder.require_auth();
+
+        if amount < config.min_amount || amount > config.max_amount {
+            return Err(Error::AmountOutOfBounds);
+        }
+
+        let now = env.ledger().timestamp();
+        if expires_at <= now {
+            return Err(Error::InvalidExpiry);
         }
 
         let key = DataKey::Cheque(cheque_id.clone());
@@ -89,106 +151,230 @@ impl ChequeContract {
             return Err(Error::ChequeAlreadyExists);
         }
 
+        // Pull tokens from funder to contract escrow
         let token_addr: Address = env
             .storage()
             .instance()
             .get(&DataKey::Token)
             .ok_or(Error::NotInitialized)?;
-
-        // Transfer funds from sender to contract escrow
         let token_client = token::Client::new(&env, &token_addr);
-        token_client.transfer(&sender, &env.current_contract_address(), &amount_stroops);
+        token_client.transfer(&funder, &env.current_contract_address(), &amount);
 
-        let record = ChequeRecord {
-            sender,
-            amount_stroops,
-            status: ChequeStatus::Active,
+        let cheque = Cheque {
+            funder: funder.clone(),
+            refund_to: refund_to.clone(),
+            amount,
             expires_at,
+            state: ChequeState::Active,
+            lock: None,
         };
 
-        env.storage().persistent().set(&key, &record);
+        env.storage().persistent().set(&key, &cheque);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, TTL_THRESHOLD, TTL_EXTEND_TO);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        // Indexed event: (event_name, cheque_id)
+        env.events().publish(
+            (symbol_short!("created"), cheque_id),
+            (funder, refund_to, amount, expires_at),
+        );
 
         Ok(())
     }
 
-    pub fn redeem_cheque(
+    pub fn lock(
         env: Env,
         cheque_id: BytesN<32>,
-        recipient: Address,
+        to: Address,
+        lock_secs: u64,
     ) -> Result<(), Error> {
-        // Must be authorized by the backend claim authority
-        let claim_authority: Address = env
+        let config: Config = env
             .storage()
             .instance()
-            .get(&DataKey::ClaimAuthority)
+            .get(&DataKey::Config)
             .ok_or(Error::NotInitialized)?;
-        claim_authority.require_auth();
+
+        if config.paused {
+            return Err(Error::ContractPaused);
+        }
+
+        let authority: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Authority)
+            .ok_or(Error::NotInitialized)?;
+        authority.require_auth();
+
+        if lock_secs > config.max_lock_secs || lock_secs == 0 {
+            return Err(Error::InvalidLockDuration);
+        }
 
         let key = DataKey::Cheque(cheque_id.clone());
-        let mut record: ChequeRecord = env
+        let mut cheque: Cheque = env
             .storage()
             .persistent()
             .get(&key)
             .ok_or(Error::ChequeNotFound)?;
 
-        match record.status {
-            ChequeStatus::Redeemed => return Err(Error::ChequeAlreadyRedeemed),
-            ChequeStatus::Refunded => return Err(Error::ChequeAlreadyRefunded),
-            ChequeStatus::Active => {}
+        if cheque.state != ChequeState::Active {
+            return Err(Error::InvalidState);
         }
 
         let now = env.ledger().timestamp();
-        if now > record.expires_at {
+        if now >= cheque.expires_at {
             return Err(Error::ChequeExpired);
         }
 
-        // Single redemption: atomically mark redeemed before transfer
-        record.status = ChequeStatus::Redeemed;
-        env.storage().persistent().set(&key, &record);
+        let unlock_after = now + lock_secs;
+        let executable_after = if cheque.amount >= config.delay_threshold {
+            now + config.delay_secs
+        } else {
+            now
+        };
 
-        let token_addr: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::Token)
-            .ok_or(Error::NotInitialized)?;
-        let token_client = token::Client::new(&env, &token_addr);
-        token_client.transfer(
-            &env.current_contract_address(),
-            &recipient,
-            &record.amount_stroops,
+        let lock_info = LockInfo {
+            to: to.clone(),
+            locked_at: now,
+            unlock_after,
+            executable_after,
+        };
+
+        cheque.state = ChequeState::Locked;
+        cheque.lock = Some(lock_info);
+
+        env.storage().persistent().set(&key, &cheque);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        env.events().publish(
+            (symbol_short!("locked"), cheque_id),
+            (to, unlock_after, executable_after),
         );
 
         Ok(())
     }
 
-    pub fn refund_cheque(env: Env, cheque_id: BytesN<32>) -> Result<(), Error> {
+    pub fn unlock(env: Env, cheque_id: BytesN<32>) -> Result<(), Error> {
         let key = DataKey::Cheque(cheque_id.clone());
-        let mut record: ChequeRecord = env
+        let mut cheque: Cheque = env
             .storage()
             .persistent()
             .get(&key)
             .ok_or(Error::ChequeNotFound)?;
 
-        match record.status {
-            ChequeStatus::Redeemed => return Err(Error::ChequeAlreadyRedeemed),
-            ChequeStatus::Refunded => return Err(Error::ChequeAlreadyRefunded),
-            ChequeStatus::Active => {}
+        if cheque.state != ChequeState::Locked {
+            return Err(Error::InvalidState);
         }
 
+        let lock_info = cheque.lock.as_ref().ok_or(Error::InvalidState)?;
         let now = env.ledger().timestamp();
-        let claim_authority: Address = env
+
+        let authority: Address = env
             .storage()
             .instance()
-            .get(&DataKey::ClaimAuthority)
+            .get(&DataKey::Authority)
             .ok_or(Error::NotInitialized)?;
 
-        // Refund can happen if expired, or if authorized by claim authority (sender cancel)
-        if now <= record.expires_at {
-            claim_authority.require_auth();
+        // Authority can unlock anytime, or ANYONE after lock expiry
+        if now < lock_info.unlock_after {
+            authority.require_auth();
         }
 
-        record.status = ChequeStatus::Refunded;
-        env.storage().persistent().set(&key, &record);
+        cheque.state = ChequeState::Active;
+        cheque.lock = None;
+
+        env.storage().persistent().set(&key, &cheque);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        env.events()
+            .publish((symbol_short!("unlocked"), cheque_id), ());
+
+        Ok(())
+    }
+
+    pub fn veto(env: Env, cheque_id: BytesN<32>) -> Result<(), Error> {
+        let guardian: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Guardian)
+            .ok_or(Error::NotInitialized)?;
+        guardian.require_auth();
+
+        let key = DataKey::Cheque(cheque_id.clone());
+        let mut cheque: Cheque = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .ok_or(Error::ChequeNotFound)?;
+
+        if cheque.state != ChequeState::Locked {
+            return Err(Error::InvalidState);
+        }
+
+        let lock_info = cheque.lock.as_ref().ok_or(Error::InvalidState)?;
+        let now = env.ledger().timestamp();
+
+        if now >= lock_info.executable_after {
+            return Err(Error::DelayPassed);
+        }
+
+        cheque.state = ChequeState::Active;
+        cheque.lock = None;
+
+        env.storage().persistent().set(&key, &cheque);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        env.events()
+            .publish((symbol_short!("vetoed"), cheque_id), ());
+
+        Ok(())
+    }
+
+    pub fn redeem(env: Env, cheque_id: BytesN<32>) -> Result<(), Error> {
+        let authority: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Authority)
+            .ok_or(Error::NotInitialized)?;
+        authority.require_auth();
+
+        let key = DataKey::Cheque(cheque_id.clone());
+        let mut cheque: Cheque = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .ok_or(Error::ChequeNotFound)?;
+
+        if cheque.state != ChequeState::Locked {
+            return Err(Error::InvalidState);
+        }
+
+        let lock_info = cheque.lock.take().ok_or(Error::InvalidState)?;
+        let now = env.ledger().timestamp();
+
+        if now < lock_info.executable_after {
+            return Err(Error::DelayNotMet);
+        }
+
+        if now >= lock_info.unlock_after {
+            return Err(Error::LockExpired);
+        }
+
+        // Checks-Effects-Interactions: set state BEFORE the token transfer
+        cheque.state = ChequeState::Redeemed;
+        env.storage().persistent().set(&key, &cheque);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, TTL_THRESHOLD, TTL_EXTEND_TO);
 
         let token_addr: Address = env
             .storage()
@@ -198,19 +384,264 @@ impl ChequeContract {
         let token_client = token::Client::new(&env, &token_addr);
         token_client.transfer(
             &env.current_contract_address(),
-            &record.sender,
-            &record.amount_stroops,
+            &lock_info.to,
+            &cheque.amount,
+        );
+
+        env.events().publish(
+            (symbol_short!("redeemed"), cheque_id),
+            (lock_info.to, cheque.amount),
         );
 
         Ok(())
     }
 
-    pub fn get_cheque(env: Env, cheque_id: BytesN<32>) -> Result<ChequeRecord, Error> {
+    pub fn cancel(env: Env, cheque_id: BytesN<32>) -> Result<(), Error> {
+        let key = DataKey::Cheque(cheque_id.clone());
+        let mut cheque: Cheque = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .ok_or(Error::ChequeNotFound)?;
+
+        cheque.funder.require_auth();
+
+        if cheque.state != ChequeState::Active {
+            return Err(Error::InvalidState);
+        }
+
+        // Checks-Effects-Interactions
+        cheque.state = ChequeState::Cancelled;
+        cheque.lock = None;
+        env.storage().persistent().set(&key, &cheque);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        let token_addr: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Token)
+            .ok_or(Error::NotInitialized)?;
+        let token_client = token::Client::new(&env, &token_addr);
+        token_client.transfer(
+            &env.current_contract_address(),
+            &cheque.refund_to,
+            &cheque.amount,
+        );
+
+        env.events().publish(
+            (symbol_short!("cancelled"), cheque_id),
+            (cheque.refund_to, cheque.amount),
+        );
+
+        Ok(())
+    }
+
+    pub fn refund(env: Env, cheque_id: BytesN<32>) -> Result<(), Error> {
+        let key = DataKey::Cheque(cheque_id.clone());
+        let mut cheque: Cheque = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .ok_or(Error::ChequeNotFound)?;
+
+        let now = env.ledger().timestamp();
+        if now < cheque.expires_at {
+            return Err(Error::ChequeNotExpired);
+        }
+
+        // Can only refund if Active, or Locked with lock expired
+        match cheque.state {
+            ChequeState::Active => {}
+            ChequeState::Locked => {
+                let lock_info = cheque.lock.as_ref().ok_or(Error::InvalidState)?;
+                if now < lock_info.unlock_after {
+                    return Err(Error::LockNotExpired);
+                }
+            }
+            _ => return Err(Error::InvalidState),
+        }
+
+        // Checks-Effects-Interactions
+        cheque.state = ChequeState::Refunded;
+        cheque.lock = None;
+        env.storage().persistent().set(&key, &cheque);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        let token_addr: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Token)
+            .ok_or(Error::NotInitialized)?;
+        let token_client = token::Client::new(&env, &token_addr);
+        token_client.transfer(
+            &env.current_contract_address(),
+            &cheque.refund_to,
+            &cheque.amount,
+        );
+
+        env.events().publish(
+            (symbol_short!("refunded"), cheque_id),
+            (cheque.refund_to, cheque.amount),
+        );
+
+        Ok(())
+    }
+
+    // Admin functions
+    pub fn set_authority(env: Env, new_authority: Address) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+
+        env.storage()
+            .instance()
+            .set(&DataKey::Authority, &new_authority);
+        Ok(())
+    }
+
+    pub fn set_guardian(env: Env, new_guardian: Address) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+
+        env.storage()
+            .instance()
+            .set(&DataKey::Guardian, &new_guardian);
+        Ok(())
+    }
+
+    pub fn set_config(env: Env, new_config: Config) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+
+        env.storage().instance().set(&DataKey::Config, &new_config);
+        Ok(())
+    }
+
+    pub fn pause(env: Env) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+
+        let mut config: Config = env
+            .storage()
+            .instance()
+            .get(&DataKey::Config)
+            .ok_or(Error::NotInitialized)?;
+        config.paused = true;
+        env.storage().instance().set(&DataKey::Config, &config);
+        Ok(())
+    }
+
+    pub fn unpause(env: Env) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+
+        let mut config: Config = env
+            .storage()
+            .instance()
+            .get(&DataKey::Config)
+            .ok_or(Error::NotInitialized)?;
+        config.paused = false;
+        env.storage().instance().set(&DataKey::Config, &config);
+        Ok(())
+    }
+
+    pub fn transfer_admin(env: Env, new_admin: Address) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+
+        env.storage()
+            .instance()
+            .set(&DataKey::PendingAdmin, &new_admin);
+        Ok(())
+    }
+
+    pub fn accept_admin(env: Env) -> Result<(), Error> {
+        let pending: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::PendingAdmin)
+            .ok_or(Error::NoPendingAdmin)?;
+        pending.require_auth();
+
+        env.storage().instance().set(&DataKey::Admin, &pending);
+        env.storage().instance().remove(&DataKey::PendingAdmin);
+        Ok(())
+    }
+
+    pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+
+        env.deployer().update_current_contract_wasm(new_wasm_hash);
+        Ok(())
+    }
+
+    // Views
+    pub fn get_cheque(env: Env, cheque_id: BytesN<32>) -> Result<Cheque, Error> {
         let key = DataKey::Cheque(cheque_id);
         env.storage()
             .persistent()
             .get(&key)
             .ok_or(Error::ChequeNotFound)
+    }
+
+    pub fn config(env: Env) -> Result<Config, Error> {
+        env.storage()
+            .instance()
+            .get(&DataKey::Config)
+            .ok_or(Error::NotInitialized)
+    }
+
+    pub fn admin(env: Env) -> Result<Address, Error> {
+        env.storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)
+    }
+
+    pub fn authority(env: Env) -> Result<Address, Error> {
+        env.storage()
+            .instance()
+            .get(&DataKey::Authority)
+            .ok_or(Error::NotInitialized)
+    }
+
+    pub fn guardian(env: Env) -> Result<Address, Error> {
+        env.storage()
+            .instance()
+            .get(&DataKey::Guardian)
+            .ok_or(Error::NotInitialized)
     }
 }
 
