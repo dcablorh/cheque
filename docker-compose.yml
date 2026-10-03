@@ -1,0 +1,50 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: cheque-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: cheque_user
+      POSTGRES_PASSWORD: cheque_password
+      POSTGRES_DB: cheque_db
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U cheque_user -d cheque_db']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: cheque-redis
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:latest
+    container_name: cheque-toxiproxy
+    restart: unless-stopped
+    ports:
+      - '8474:8474' # Toxiproxy HTTP API
+      - '5433:5433' # Toxiproxy upstream to Postgres
+      - '6380:6380' # Toxiproxy upstream to Redis
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  redis_data:

@@ -1,0 +1,26 @@
+{
+  "name": "@cheque/api",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.js"
+  },
+  "dependencies": {
+    "@cheque/core": "workspace:*",
+    "@cheque/shared": "workspace:*",
+    "@cheque/chain": "workspace:*",
+    "@cheque/ramps": "workspace:*",
+    "@cheque/notify": "workspace:*",
+    "fastify": "^4.28.1",
+    "@fastify/cors": "^9.0.1",
+    "@fastify/sensible": "^5.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8"
+  }
+}
