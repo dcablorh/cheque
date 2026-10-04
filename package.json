@@ -13,6 +13,7 @@
     "deploy:contract": "tsx scripts/deploy-contract.ts",
     "e2e:cheque": "tsx scripts/e2e-cheque-flow.ts",
     "e2e:refund": "tsx scripts/e2e-refund-flow.ts",
+    "test:integration": "tsx scripts/testnet-integration-acceptance.ts",
     "lint": "pnpm -r run lint"
   },
   "devDependencies": {
