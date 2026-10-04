@@ -11,7 +11,8 @@
   "dependencies": {
     "@cheque/core": "workspace:*",
     "@cheque/shared": "workspace:*",
-    "@cheque/chain": "workspace:*"
+    "@cheque/chain": "workspace:*",
+    "@stellar/stellar-sdk": "^13.0.0"
   },
   "devDependencies": {
     "@types/node": "^20.17.0",
