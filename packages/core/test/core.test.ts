@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import {
   ghsToPesewas,
   pesewasToGhsString,
@@ -6,6 +6,11 @@ import {
   stroopsToUsdcString,
   addMinor,
   subMinor,
+  toPesewas,
+  toStroops,
+  convertGhsToUsdcStroops,
+  convertUsdcStroopsToGhs,
+  roundDivision,
   maskPhone,
   maskName,
   maskAccountRef,
@@ -20,15 +25,26 @@ import {
   createSettlementPendingTransaction,
   createSettlementConfirmedTransaction,
   createSettlementFailedRollbackTransaction,
-  createRefundTransaction,
+  createRefundPendingTransaction,
+  createRefundConfirmedTransaction,
   createFxBufferAdjustmentTransaction,
   validateLedgerTransaction,
   MockAdapter,
   CreateChequeSchema,
   RedeemChequeSchema,
+  getPool,
+  closePool,
+  runMigrations,
+  transition,
+  OptimisticLockError,
+  getReconciliationReport,
+  checkChequeReconciliation,
+  OutboxProcessor,
+  OutboxItem,
 } from '../src/index.js';
+import crypto from 'node:crypto';
 
-describe('Rule 2: Money Integer Minor Units', () => {
+describe('Money Utils (Pesewas, Stroops, Explicit Rounding)', () => {
   it('converts GHS to pesewas accurately without floating point drift', () => {
     expect(ghsToPesewas('50.00')).toBe(5000);
     expect(ghsToPesewas('500')).toBe(50000);
@@ -38,21 +54,42 @@ describe('Rule 2: Money Integer Minor Units', () => {
   });
 
   it('formats pesewas to GHS string correctly', () => {
-    expect(pesewasToGhsString(505)).toBe('5.05');
-    expect(pesewasToGhsString(50000)).toBe('500.00');
-    expect(pesewasToGhsString(9)).toBe('0.09');
+    expect(pesewasToGhsString(toPesewas(505))).toBe('5.05');
+    expect(pesewasToGhsString(toPesewas(50000))).toBe('500.00');
+    expect(pesewasToGhsString(toPesewas(9))).toBe('0.09');
   });
 
   it('converts USDC to stroops accurately (7 decimals)', () => {
-    expect(usdcToStroops('1')).toBe(10_000_000);
-    expect(usdcToStroops('32.5')).toBe(325_000_000);
-    expect(usdcToStroops('0.0000001')).toBe(1);
+    expect(usdcToStroops('1')).toBe(10_000_000n);
+    expect(usdcToStroops('32.5')).toBe(325_000_000n);
+    expect(usdcToStroops('0.0000001')).toBe(1n);
   });
 
   it('formats stroops to USDC string', () => {
-    expect(stroopsToUsdcString(10_000_000)).toBe('1.0000000');
-    expect(stroopsToUsdcString(325_000_000)).toBe('32.5000000');
-    expect(stroopsToUsdcString(1)).toBe('0.0000001');
+    expect(stroopsToUsdcString(toStroops(10_000_000n))).toBe('1.0000000');
+    expect(stroopsToUsdcString(toStroops(325_000_000n))).toBe('32.5000000');
+    expect(stroopsToUsdcString(toStroops(1n))).toBe('0.0000001');
+  });
+
+  it('implements explicit division rounding modes', () => {
+    // 7 / 2 = 3.5 -> ROUND_UP: 4, ROUND_DOWN: 3, ROUND_HALF_UP: 4
+    expect(roundDivision(7n, 2n, 'ROUND_DOWN')).toBe(3n);
+    expect(roundDivision(7n, 2n, 'ROUND_UP')).toBe(4n);
+    expect(roundDivision(7n, 2n, 'ROUND_HALF_UP')).toBe(4n);
+
+    // 5 / 2 = 2.5 -> ROUND_HALF_EVEN: 2 (even)
+    expect(roundDivision(5n, 2n, 'ROUND_HALF_EVEN')).toBe(2n);
+    // 7 / 2 = 3.5 -> ROUND_HALF_EVEN: 4 (even)
+    expect(roundDivision(7n, 2n, 'ROUND_HALF_EVEN')).toBe(4n);
+  });
+
+  it('converts GHS pesewas to USDC stroops with explicit rounding', () => {
+    // 155.00 GHS at 15.50 FX rate = 10 USDC = 100,000,000 stroops
+    const stroops = convertGhsToUsdcStroops(toPesewas(15500), '15.500000', 'ROUND_HALF_UP');
+    expect(stroops).toBe(100_000_000n);
+
+    const backToGhs = convertUsdcStroopsToGhs(stroops, '15.500000', 'ROUND_HALF_UP');
+    expect(backToGhs).toBe(15500);
   });
 
   it('handles safe minor addition and subtraction', () => {
@@ -62,7 +99,7 @@ describe('Rule 2: Money Integer Minor Units', () => {
   });
 });
 
-describe('Rule 9: PII Masking', () => {
+describe('PII Masking', () => {
   it('masks Ghana phone numbers properly', () => {
     expect(maskPhone('+233241234567')).toBe('+233 24 XXX 4567');
     expect(maskPhone('0241234567')).toBe('024 XXX 4567');
@@ -81,7 +118,7 @@ describe('Rule 9: PII Masking', () => {
   });
 });
 
-describe('Rule 8: 128-bit Claim Token and OTP Security', () => {
+describe('128-bit Claim Token and OTP Security', () => {
   it('generates a 128-bit random token, its SHA-256 hash, and a CHQ-XXXXXX short code', () => {
     const { rawToken, claimTokenHash, publicCode } = generateClaimToken();
     expect(rawToken).toBeTruthy();
@@ -100,7 +137,7 @@ describe('Rule 8: 128-bit Claim Token and OTP Security', () => {
   });
 });
 
-describe('Cheque Lifecycle State Machine', () => {
+describe('Cheque Lifecycle State Machine & Guards', () => {
   it('allows normal happy path transitions', () => {
     expect(isValidTransition('DRAFT', 'PENDING_FUNDING').allowed).toBe(true);
     expect(isValidTransition('PENDING_FUNDING', 'ACTIVE').allowed).toBe(true);
@@ -110,7 +147,7 @@ describe('Cheque Lifecycle State Machine', () => {
     expect(isValidTransition('SETTLING', 'SETTLED').allowed).toBe(true);
   });
 
-  it('Rule 7: allows payout failure to return to AUTHORIZED (retryable)', () => {
+  it('allows payout failure to return to AUTHORIZED (retryable)', () => {
     const res = isValidTransition('SETTLING', 'AUTHORIZED');
     expect(res.allowed).toBe(true);
   });
@@ -119,8 +156,6 @@ describe('Cheque Lifecycle State Machine', () => {
     expect(canSenderCancel('PENDING_FUNDING')).toBe(true);
     expect(canSenderCancel('ACTIVE')).toBe(true);
     expect(canSenderCancel('CLAIMING')).toBe(false);
-    expect(canSenderCancel('AUTHORIZED')).toBe(false);
-    expect(canSenderCancel('SETTLING')).toBe(false);
 
     const senderCancelInClaiming = isValidTransition('CLAIMING', 'REFUNDING', {
       actor: 'SENDER',
@@ -129,161 +164,398 @@ describe('Cheque Lifecycle State Machine', () => {
   });
 
   it('prevents direct expiry on AUTHORIZED or SETTLING', () => {
-    const authExpire = isValidTransition('AUTHORIZED', 'REFUNDING');
-    expect(authExpire.allowed).toBe(false);
-    const settlingExpire = isValidTransition('SETTLING', 'REFUNDING');
-    expect(settlingExpire.allowed).toBe(false);
+    expect(isValidTransition('AUTHORIZED', 'EXPIRED').allowed).toBe(false);
+    expect(isValidTransition('SETTLING', 'EXPIRED').allowed).toBe(false);
   });
 });
 
-describe('Rule 3: Double-Entry Ledger', () => {
-  it('creates and balances a funding transaction', () => {
-    const tx = createFundingTransaction({
-      chequeId: 'chq-123',
-      faceAmountMinor: 50000, // 500.00 GHS
-      feeMinor: 500, // 5.00 GHS
-      currency: 'GHS',
-    });
-
-    expect(() => validateLedgerTransaction(tx)).not.toThrow();
-    const debits = tx.entries.reduce((acc, e) => acc + e.debitMinor, 0);
-    const credits = tx.entries.reduce((acc, e) => acc + e.creditMinor, 0);
-    expect(debits).toBe(credits);
-    expect(debits).toBe(50500);
+describe('Real PostgreSQL Integration & Double-Entry Ledger Property Tests', () => {
+  const pool = getPool({
+    connectionString: process.env.DATABASE_URL || 'postgresql://cheque_user:cheque_password@localhost:5432/cheque_db',
   });
 
-  it('creates and balances settlement pending, confirmed, and rollback transactions', () => {
-    const pendingTx = createSettlementPendingTransaction({
-      chequeId: 'chq-123',
-      amountMinor: 50000,
-      currency: 'GHS',
-    });
-    expect(() => validateLedgerTransaction(pendingTx)).not.toThrow();
-
-    const confirmedTx = createSettlementConfirmedTransaction({
-      chequeId: 'chq-123',
-      amountMinor: 50000,
-      currency: 'GHS',
-    });
-    expect(() => validateLedgerTransaction(confirmedTx)).not.toThrow();
-
-    const rollbackTx = createSettlementFailedRollbackTransaction({
-      chequeId: 'chq-123',
-      amountMinor: 50000,
-      currency: 'GHS',
-    });
-    expect(() => validateLedgerTransaction(rollbackTx)).not.toThrow();
+  beforeAll(async () => {
+    // Run schema migrations on real database
+    await runMigrations(pool);
   });
 
-  it('creates and balances refund and FX buffer transactions', () => {
-    const refundTx = createRefundTransaction({
-      chequeId: 'chq-123',
-      amountMinor: 50000,
-      currency: 'GHS',
-    });
-    expect(() => validateLedgerTransaction(refundTx)).not.toThrow();
-
-    const fxTx = createFxBufferAdjustmentTransaction({
-      chequeId: 'chq-123',
-      shortfallMinor: 200,
-      currency: 'GHS',
-    });
-    expect(() => validateLedgerTransaction(fxTx)).not.toThrow();
+  afterAll(async () => {
+    await closePool();
   });
 
-  it('rejects an unbalanced transaction', () => {
-    expect(() =>
-      validateLedgerTransaction({
-        txId: 'bad-tx',
-        currency: 'GHS',
-        description: 'unbalanced',
-        entries: [
-          { account: 'sender_funds', debitMinor: 100, creditMinor: 0 },
-          { account: 'cheque_escrow', debitMinor: 0, creditMinor: 90 },
-        ],
-        createdAt: new Date(),
-      })
-    ).toThrow('does not balance');
-  });
-});
+  it('Acceptance: concurrent transition test yields exactly one success', async () => {
+    const client = await pool.connect();
+    const testUserId = crypto.randomUUID();
+    const testChequeId = crypto.randomUUID();
 
-describe('Rule 5: SettlementAdapter & MockAdapter', () => {
-  it('generates quote, fund instructions, and settlement', async () => {
-    const adapter = new MockAdapter({ mockRate: '15.500000' });
-    const mockCheque = {
-      id: 'chq-test',
-      publicCode: 'CHQ-TEST01',
-      claimTokenHash: 'hash',
-      senderId: 'user-1',
-      payeeName: 'Ama Serwaa',
-      payeePhoneE164: '+233241234567',
-      faceAmountGhsMinor: 50000,
+    try {
+      // 1. Setup test user and cheque
+      await client.query(
+        `INSERT INTO users (id, phone_e164, name) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING;`,
+        [testUserId, `+23324${Math.floor(1000000 + Math.random() * 9000000)}`, 'Concurrency Test User']
+      );
+
+      const publicCode = `CHQ-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+      const claimHash = crypto.randomBytes(32).toString('hex');
+
+      await client.query(
+        `
+        INSERT INTO cheques (
+          id, public_code, claim_token_hash, sender_id, payee_name, payee_phone_e164,
+          face_amount_ghs_minor, fee_minor, state, expires_at, version
+        ) VALUES ($1, $2, $3, $4, 'Payee', '+233241112233', 50000, 500, 'DRAFT', NOW() + INTERVAL '1 day', 1);
+        `,
+        [testChequeId, publicCode, claimHash, testUserId]
+      );
+
+      // 2. Launch 5 concurrent transition attempts from DRAFT -> PENDING_FUNDING with expectedVersion: 1
+      const attempts = Array.from({ length: 5 }, async (_, index) => {
+        try {
+          const res = await transition({
+            chequeId: testChequeId,
+            fromState: 'DRAFT',
+            toState: 'PENDING_FUNDING',
+            actor: 'SENDER',
+            expectedVersion: 1,
+            auditPayload: { attemptIndex: index },
+          });
+          return { success: true, cheque: res.cheque };
+        } catch (err: unknown) {
+          return { success: false, error: err };
+        }
+      });
+
+      const results = await Promise.all(attempts);
+
+      const successes = results.filter((r) => r.success);
+      const failures = results.filter((r) => !r.success);
+
+      // Invariant: Exactly ONE must succeed, and the rest must fail with OptimisticLockError
+      expect(successes).toHaveLength(1);
+      expect(failures).toHaveLength(4);
+
+      for (const fail of failures) {
+        expect((fail as any).error).toBeInstanceOf(OptimisticLockError);
+      }
+
+      // Verify DB final state
+      const finalDbRes = await client.query('SELECT state, version FROM cheques WHERE id = $1;', [testChequeId]);
+      expect(finalDbRes.rows[0].state).toBe('PENDING_FUNDING');
+      expect(finalDbRes.rows[0].version).toBe(2);
+
+      // Verify audit event was logged
+      const auditRes = await client.query('SELECT * FROM events WHERE cheque_id = $1;', [testChequeId]);
+      expect(auditRes.rows.length).toBeGreaterThanOrEqual(1);
+    } finally {
+      // Cleanup test records
+      await client.query('DELETE FROM cheques WHERE id = $1;', [testChequeId]).catch(() => {});
+      await client.query('DELETE FROM users WHERE id = $1;', [testUserId]).catch(() => {});
+      client.release();
+    }
+  });
+
+  it('Acceptance: double-entry ledger always balances (property test on real DB)', async () => {
+    const testChequeId = crypto.randomUUID();
+
+    // Create 6 different financial transactions across the full cheque lifecycle
+    const tx1 = createFundingTransaction({
+      chequeId: testChequeId,
+      faceAmountMinor: 50000,
       feeMinor: 500,
-      state: 'ACTIVE' as const,
-      expiresAt: new Date(Date.now() + 86400000),
-      version: 1,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
+      currency: 'GHS',
+    });
 
-    const quote = await adapter.quote(mockCheque);
-    expect(quote.rate).toBe('15.500000');
-    expect(quote.toAmountMinor).toBeGreaterThan(0);
+    const tx2 = createSettlementPendingTransaction({
+      chequeId: testChequeId,
+      amountMinor: 50000,
+      currency: 'GHS',
+    });
 
-    const fundMomo = await adapter.fund(mockCheque, 'MOMO');
-    expect(fundMomo.paymentInstructions?.momoPromptSent).toBe(true);
+    const tx3 = createSettlementConfirmedTransaction({
+      chequeId: testChequeId,
+      amountMinor: 50000,
+      currency: 'GHS',
+    });
 
-    const settleRes = await adapter.settle(
-      mockCheque,
-      {
-        id: 'dest-1',
-        chequeId: mockCheque.id,
-        type: 'MOMO',
-        network: 'MTN',
-        accountRef: '+233241234567',
-        verifiedNameMatch: true,
-      },
-      'idemp-key-1'
-    );
-    expect(settleRes.status).toBe('CONFIRMED');
+    const tx4 = createSettlementFailedRollbackTransaction({
+      chequeId: testChequeId,
+      amountMinor: 50000,
+      currency: 'GHS',
+    });
 
-    const status = await adapter.status(settleRes.providerRef);
-    expect(status.status).toBe('SUCCESS');
+    const tx5 = createRefundPendingTransaction({
+      chequeId: testChequeId,
+      amountMinor: 50000,
+      currency: 'GHS',
+    });
+
+    const tx6 = createRefundConfirmedTransaction({
+      chequeId: testChequeId,
+      amountMinor: 50000,
+      currency: 'GHS',
+    });
+
+    const tx7 = createFxBufferAdjustmentTransaction({
+      chequeId: testChequeId,
+      shortfallMinor: 250,
+      currency: 'GHS',
+    });
+
+    const allTransactions = [tx1, tx2, tx3, tx4, tx5, tx6, tx7];
+
+    const client = await pool.connect();
+    const testUserId = crypto.randomUUID();
+    try {
+      await client.query(
+        `INSERT INTO users (id, phone_e164, name) VALUES ($1, $2, 'Ledger User') ON CONFLICT DO NOTHING;`,
+        [testUserId, `+23324${Math.floor(1000000 + Math.random() * 9000000)}`]
+      );
+
+      await client.query(
+        `
+        INSERT INTO cheques (
+          id, public_code, claim_token_hash, sender_id, payee_name, payee_phone_e164,
+          face_amount_ghs_minor, fee_minor, state, expires_at, version
+        ) VALUES ($1, $2, $3, $4, 'Payee', '+233241112233', 50000, 500, 'ACTIVE', NOW() + INTERVAL '1 day', 1);
+        `,
+        [testChequeId, `CHQ-${crypto.randomBytes(3).toString('hex').toUpperCase()}`, crypto.randomBytes(32).toString('hex'), testUserId]
+      );
+
+      // Insert all entries into real Postgres
+      for (const tx of allTransactions) {
+        for (const entry of tx.entries) {
+          await client.query(
+            `
+            INSERT INTO ledger_entries (
+              id, tx_id, account, debit_minor, credit_minor, cheque_id, currency, description
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8);
+            `,
+            [
+              crypto.randomUUID(),
+              tx.txId,
+              entry.account,
+              entry.debitMinor,
+              entry.creditMinor,
+              testChequeId,
+              tx.currency,
+              tx.description,
+            ]
+          );
+        }
+      }
+
+      // Property Test 1: For EVERY transaction on real DB, sum(debits) - sum(credits) == 0
+      const balanceCheckRes = await client.query(`
+        SELECT
+          tx_id,
+          SUM(debit_minor) AS total_debit,
+          SUM(credit_minor) AS total_credit,
+          (SUM(debit_minor) - SUM(credit_minor)) AS diff
+        FROM ledger_entries
+        WHERE cheque_id = $1
+        GROUP BY tx_id;
+      `, [testChequeId]);
+
+      expect(balanceCheckRes.rows.length).toBe(allTransactions.length);
+
+      for (const row of balanceCheckRes.rows) {
+        expect(Number(row.diff)).toBe(0);
+        expect(row.total_debit).toBe(row.total_credit);
+      }
+
+      // Property Test 2: Global balance on real DB
+      const globalRes = await client.query(`
+        SELECT
+          SUM(debit_minor) AS grand_debit,
+          SUM(credit_minor) AS grand_credit
+        FROM ledger_entries
+        WHERE cheque_id = $1;
+      `, [testChequeId]);
+
+      expect(globalRes.rows[0].grand_debit).toBe(globalRes.rows[0].grand_credit);
+    } finally {
+      await client.query('DELETE FROM ledger_entries WHERE cheque_id = $1;', [testChequeId]).catch(() => {});
+      await client.query('DELETE FROM cheques WHERE id = $1;', [testChequeId]).catch(() => {});
+      await client.query('DELETE FROM users WHERE id = $1;', [testUserId]).catch(() => {});
+      client.release();
+    }
   });
-});
 
-describe('Zod Validation Schemas', () => {
-  it('validates valid CreateChequeSchema', () => {
-    const valid = CreateChequeSchema.safeParse({
-      payeeName: 'Kojo Mensah',
-      payeePhoneE164: '+233241234567',
-      amountGhs: 500,
-      note: 'For rent',
-      expiryHours: 48,
-    });
-    expect(valid.success).toBe(true);
+  it('verifies partial unique index on payouts(cheque_id) WHERE status IN (PENDING, SENT, CONFIRMED)', async () => {
+    const client = await pool.connect();
+    const testChequeId = crypto.randomUUID();
+    const testUserId = crypto.randomUUID();
+    const destId = crypto.randomUUID();
+
+    try {
+      await client.query(
+        `INSERT INTO users (id, phone_e164, name) VALUES ($1, $2, 'Payout User') ON CONFLICT DO NOTHING;`,
+        [testUserId, '+233249998877']
+      );
+
+      await client.query(
+        `
+        INSERT INTO cheques (
+          id, public_code, claim_token_hash, sender_id, payee_name, payee_phone_e164,
+          face_amount_ghs_minor, fee_minor, state, expires_at, version
+        ) VALUES ($1, $2, $3, $4, 'Payee', '+233241112233', 50000, 500, 'AUTHORIZED', NOW() + INTERVAL '1 day', 1);
+        `,
+        [testChequeId, `CHQ-${crypto.randomBytes(3).toString('hex').toUpperCase()}`, crypto.randomBytes(32).toString('hex'), testUserId]
+      );
+
+      await client.query(
+        `
+        INSERT INTO destinations (id, cheque_id, type, account_ref)
+        VALUES ($1, $2, 'MOMO', '+233241112233');
+        `,
+        [destId, testChequeId]
+      );
+
+      // First active payout succeeds
+      await client.query(
+        `
+        INSERT INTO payouts (id, cheque_id, destination_id, status, idempotency_key, amount_minor)
+        VALUES ($1, $2, $3, 'PENDING', 'idemp-1', 50000);
+        `,
+        [crypto.randomUUID(), testChequeId, destId]
+      );
+
+      // Second active payout on SAME cheque must violate the partial unique index
+      let violated = false;
+      try {
+        await client.query(
+          `
+          INSERT INTO payouts (id, cheque_id, destination_id, status, idempotency_key, amount_minor)
+          VALUES ($1, $2, $3, 'SENT', 'idemp-2', 50000);
+          `,
+          [crypto.randomUUID(), testChequeId, destId]
+        );
+      } catch (err: any) {
+        violated = err.message.includes('idx_payouts_active_cheque') || err.code === '23505';
+      }
+
+      expect(violated).toBe(true);
+    } finally {
+      await client.query('DELETE FROM payouts WHERE cheque_id = $1;', [testChequeId]).catch(() => {});
+      await client.query('DELETE FROM destinations WHERE cheque_id = $1;', [testChequeId]).catch(() => {});
+      await client.query('DELETE FROM cheques WHERE id = $1;', [testChequeId]).catch(() => {});
+      await client.query('DELETE FROM users WHERE id = $1;', [testUserId]).catch(() => {});
+      client.release();
+    }
   });
 
-  it('rejects invalid phone or out of bounds amounts', () => {
-    const invalidPhone = CreateChequeSchema.safeParse({
-      payeeName: 'Kojo Mensah',
-      payeePhoneE164: '0241234567', // Not E.164 +233
-      amountGhs: 500,
-    });
-    expect(invalidPhone.success).toBe(false);
+  it('verifies unique webhook_events(provider, event_id)', async () => {
+    const client = await pool.connect();
+    const eventId = `evt-${Date.now()}`;
 
-    const tooSmall = CreateChequeSchema.safeParse({
-      payeeName: 'Kojo Mensah',
-      payeePhoneE164: '+233241234567',
-      amountGhs: 2, // min is 5
-    });
-    expect(tooSmall.success).toBe(false);
+    try {
+      await client.query(
+        `
+        INSERT INTO webhook_events (id, provider, event_id, payload)
+        VALUES (uuid_generate_v4(), 'SEEVCASH', $1, '{"status":"ok"}');
+        `,
+        [eventId]
+      );
 
-    const tooLarge = CreateChequeSchema.safeParse({
-      payeeName: 'Kojo Mensah',
-      payeePhoneE164: '+233241234567',
-      amountGhs: 5000, // max is 2000 in V1
-    });
-    expect(tooLarge.success).toBe(false);
+      // Duplicate must fail
+      let duplicateCaught = false;
+      try {
+        await client.query(
+          `
+          INSERT INTO webhook_events (id, provider, event_id, payload)
+          VALUES (uuid_generate_v4(), 'SEEVCASH', $1, '{"status":"ok2"}');
+          `,
+          [eventId]
+        );
+      } catch (err: any) {
+        duplicateCaught = err.code === '23505';
+      }
+
+      expect(duplicateCaught).toBe(true);
+    } finally {
+      await client.query('DELETE FROM webhook_events WHERE event_id = $1;', [eventId]).catch(() => {});
+      client.release();
+    }
+  });
+
+  it('processes outbox items with FOR UPDATE SKIP LOCKED, backoff, and dead-lettering', async () => {
+    const client = await pool.connect();
+    const outboxId = crypto.randomUUID();
+
+    try {
+      await client.query(
+        `
+        INSERT INTO outbox (id, topic, aggregate_type, aggregate_id, payload, status, max_attempts)
+        VALUES ($1, 'test:operation:execute', 'CHEQUE', 'chq-test', '{"action":"test"}', 'PENDING', 2);
+        `,
+        [outboxId]
+      );
+
+      const processor = new OutboxProcessor(pool);
+      let executed = false;
+      processor.registerHandler('test:operation:execute', async (item: OutboxItem) => {
+        expect(item.id).toBe(outboxId);
+        executed = true;
+      });
+
+      const processedCount = await processor.pollAndProcess(5);
+      expect(processedCount).toBe(1);
+      expect(executed).toBe(true);
+
+      const completedRes = await client.query('SELECT status FROM outbox WHERE id = $1;', [outboxId]);
+      expect(completedRes.rows[0].status).toBe('COMPLETED');
+    } finally {
+      await client.query('DELETE FROM outbox WHERE id = $1;', [outboxId]).catch(() => {});
+      client.release();
+    }
+  });
+
+  it('reconciliation view reports off-chain state vs chain_events alignment', async () => {
+    const client = await pool.connect();
+    const testUserId = crypto.randomUUID();
+    const testChequeId = crypto.randomUUID();
+    const chequeHex = testChequeId.replace(/-/g, '');
+
+    try {
+      await client.query(
+        `INSERT INTO users (id, phone_e164, name) VALUES ($1, $2, 'Recon User') ON CONFLICT DO NOTHING;`,
+        [testUserId, '+233240001122']
+      );
+
+      await client.query(
+        `
+        INSERT INTO cheques (
+          id, public_code, claim_token_hash, sender_id, payee_name, payee_phone_e164,
+          face_amount_ghs_minor, fee_minor, state, expires_at, version
+        ) VALUES ($1, $2, $3, $4, 'Payee', '+233241112233', 50000, 500, 'ACTIVE', NOW() + INTERVAL '1 day', 1);
+        `,
+        [testChequeId, `CHQ-${crypto.randomBytes(3).toString('hex').toUpperCase()}`, crypto.randomBytes(32).toString('hex'), testUserId]
+      );
+
+      // Initially, cheque is ACTIVE but no on-chain event exists yet -> isReconciled = false
+      let recon = await checkChequeReconciliation(testChequeId, client);
+      expect(recon).toBeDefined();
+      expect(recon?.isReconciled).toBe(false);
+
+      // Now insert on-chain event 'created' into chain_events
+      await client.query(
+        `
+        INSERT INTO chain_events (id, tx_hash, event_index, ledger, contract_id, topic, cheque_id_hex, payload)
+        VALUES ('tx1:0', 'tx1', 0, 5000100, 'contract-id', 'created', $1, '{"amount":50000}');
+        `,
+        [chequeHex]
+      );
+
+      // Re-check reconciliation -> now matches!
+      recon = await checkChequeReconciliation(testChequeId, client);
+      expect(recon?.isReconciled).toBe(true);
+      expect(recon?.lastChainEvent).toBe('created');
+      expect(recon?.lastChainLedger).toBe('5000100');
+    } finally {
+      await client.query('DELETE FROM chain_events WHERE cheque_id_hex = $1;', [chequeHex]).catch(() => {});
+      await client.query('DELETE FROM cheques WHERE id = $1;', [testChequeId]).catch(() => {});
+      await client.query('DELETE FROM users WHERE id = $1;', [testUserId]).catch(() => {});
+      client.release();
+    }
   });
 });

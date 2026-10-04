@@ -3,16 +3,16 @@ import { ChequeState } from './types.js';
 export const VALID_TRANSITIONS: Record<ChequeState, readonly ChequeState[]> = {
   DRAFT: ['PENDING_FUNDING', 'CANCELLED'],
   PENDING_FUNDING: ['ACTIVE', 'CANCELLED'],
-  ACTIVE: ['CLAIMING', 'REFUNDING'],
+  ACTIVE: ['CLAIMING', 'CANCELLED', 'EXPIRED', 'REFUNDING'],
   CANCELLED: [],
-  CLAIMING: ['AUTHORIZED', 'ACTIVE', 'REFUNDING'],
+  CLAIMING: ['AUTHORIZED', 'ACTIVE', 'REFUNDING', 'REFUND_REVIEW'],
   AUTHORIZED: ['SETTLING', 'ACTIVE', 'REFUND_REVIEW'],
   SETTLING: ['SETTLED', 'AUTHORIZED', 'REFUND_REVIEW'],
   SETTLED: [],
   EXPIRED: ['REFUNDING', 'REFUND_REVIEW'],
   REFUNDING: ['REFUNDED', 'REFUND_REVIEW'],
   REFUNDED: [],
-  REFUND_REVIEW: ['REFUNDED', 'AUTHORIZED'], // Ops can re-authorize or complete refund
+  REFUND_REVIEW: ['REFUNDED', 'AUTHORIZED', 'REFUNDING'],
 };
 
 export interface TransitionCheckContext {
@@ -35,22 +35,32 @@ export function isValidTransition(
     };
   }
 
-  // Rule: Sender can cancel only in PENDING_FUNDING or ACTIVE.
+  // Guard 1: Sender can cancel only in PENDING_FUNDING or ACTIVE.
   if (context?.actor === 'SENDER' && (to === 'CANCELLED' || to === 'REFUNDING')) {
     if (from !== 'PENDING_FUNDING' && from !== 'ACTIVE') {
       return {
         allowed: false,
-        reason: `Sender cannot cancel cheque in state ${from}`,
+        reason: `Sender cannot cancel cheque in state ${from}. Once claiming starts, cancellation is blocked.`,
       };
     }
   }
 
-  // Rule: Expiry never fires on AUTHORIZED or SETTLING.
-  if (to === 'REFUNDING' || to === 'EXPIRED') {
+  // Guard 2: Expiry never fires on AUTHORIZED or SETTLING.
+  if (to === 'EXPIRED' || to === 'REFUNDING') {
     if (from === 'AUTHORIZED' || from === 'SETTLING') {
       return {
         allowed: false,
-        reason: `Cheque in ${from} cannot expire directly; must fallback to ACTIVE first`,
+        reason: `Cheque in ${from} has an in-flight payout and cannot expire directly; must fallback to ACTIVE first.`,
+      };
+    }
+  }
+
+  // Guard 3: Cheque can only transition to EXPIRED if now >= expiresAt
+  if (to === 'EXPIRED' && context?.expiresAt && context?.now) {
+    if (context.now < context.expiresAt) {
+      return {
+        allowed: false,
+        reason: 'Cannot transition to EXPIRED before expires_at timestamp has passed.',
       };
     }
   }

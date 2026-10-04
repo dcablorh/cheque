@@ -2,11 +2,11 @@ export type ChequeState =
   | 'DRAFT'
   | 'PENDING_FUNDING'
   | 'ACTIVE'
-  | 'CANCELLED'
   | 'CLAIMING'
   | 'AUTHORIZED'
   | 'SETTLING'
   | 'SETTLED'
+  | 'CANCELLED'
   | 'EXPIRED'
   | 'REFUNDING'
   | 'REFUNDED'
@@ -26,11 +26,21 @@ export type RefundStatus = 'PENDING' | 'CONFIRMED' | 'FAILED' | 'REVIEW';
 
 export type LedgerAccount =
   | 'sender_funds'
-  | 'cheque_escrow'
+  | 'cheque_escrow_onchain'
   | 'payout_pending'
   | 'settled'
   | 'fees'
-  | 'fx_buffer';
+  | 'fx_buffer'
+  | 'refunds_pending';
+
+export interface User {
+  id: string;
+  phoneE164: string;
+  name?: string;
+  pinHash?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
 
 export interface Cheque {
   id: string;
@@ -46,7 +56,7 @@ export interface Cheque {
   expiresAt: Date;
   quoteId?: string;
   usdcAmountStroops?: number; // Integer stroops (1 USDC = 10,000,000 stroops)
-  fxRate?: string; // Stored as decimal string e.g. "15.420000" to preserve precision
+  fxRate?: string; // Decimal string e.g. "15.420000"
   version: number;
   createdAt: Date;
   updatedAt: Date;
@@ -60,6 +70,7 @@ export interface FundingRecord {
   providerRef?: string;
   amountMinor: number;
   createdAt: Date;
+  updatedAt: Date;
 }
 
 export interface ClaimSession {
@@ -67,10 +78,12 @@ export interface ClaimSession {
   chequeId: string;
   otpHash: string;
   attempts: number;
+  maxAttempts: number;
   verifiedAt?: Date;
   expiresAt: Date;
   deviceFp?: string;
   sessionToken?: string;
+  createdAt: Date;
 }
 
 export interface Destination {
@@ -82,6 +95,7 @@ export interface Destination {
   accountName?: string;
   verifiedNameMatch: boolean;
   memo?: string; // Optional Stellar memo
+  createdAt: Date;
 }
 
 export interface Payout {
@@ -91,9 +105,11 @@ export interface Payout {
   status: PayoutStatus;
   providerRef?: string;
   idempotencyKey: string;
+  amountMinor: number;
   attempts: number;
   lastError?: string;
   createdAt: Date;
+  updatedAt: Date;
 }
 
 export interface Refund {
@@ -103,7 +119,9 @@ export interface Refund {
   status: RefundStatus;
   providerRef?: string;
   amountMinor: number;
+  reason?: string;
   createdAt: Date;
+  updatedAt: Date;
 }
 
 export interface LedgerEntry {
@@ -114,6 +132,7 @@ export interface LedgerEntry {
   creditMinor: number; // integer minor units
   chequeId?: string;
   currency: 'GHS' | 'USDC';
+  description?: string;
   createdAt: Date;
 }
 
@@ -128,6 +147,95 @@ export interface LedgerTransaction {
     creditMinor: number;
   }[];
   createdAt: Date;
+}
+
+export interface AuditEvent {
+  id: string;
+  chequeId?: string;
+  eventType: string;
+  fromState?: string;
+  toState?: string;
+  actor: string;
+  payload: Record<string, unknown>;
+  createdAt: Date;
+}
+
+export interface WebhookEvent {
+  id: string;
+  provider: string;
+  eventId: string;
+  payload: Record<string, unknown>;
+  processed: boolean;
+  processedAt?: Date;
+  createdAt: Date;
+}
+
+export interface OutboxItem {
+  id: string;
+  topic: string;
+  aggregateType: string;
+  aggregateId: string;
+  payload: Record<string, unknown>;
+  status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'DEAD_LETTER';
+  attempts: number;
+  maxAttempts: number;
+  backoffMs: number;
+  nextRunAt: Date;
+  lockedAt?: Date;
+  lockedBy?: string;
+  lastError?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface IdempotencyKeyRecord {
+  key: string;
+  scope: string;
+  requestHash?: string;
+  responseCode?: number;
+  responseBody?: Record<string, unknown>;
+  status: 'IN_PROGRESS' | 'COMPLETED' | 'FAILED';
+  createdAt: Date;
+  expiresAt: Date;
+}
+
+export interface ChainTxRecord {
+  id: string;
+  chequeId?: string;
+  operation: string;
+  txHash: string;
+  signedXdr: string;
+  status: 'SUBMITTED' | 'CONFIRMED' | 'FAILED' | 'EXPIRED';
+  ledger?: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface ChainEventEntity {
+  id: string; // `${txHash}:${eventIndex}`
+  txHash: string;
+  eventIndex: number;
+  ledger: number;
+  contractId: string;
+  topic: string;
+  chequeIdHex: string;
+  payload: Record<string, unknown>;
+  createdAt: Date;
+}
+
+export interface AnchorTxRecord {
+  id: string;
+  chequeId?: string;
+  anchorProvider: string;
+  txType: 'DEPOSIT' | 'WITHDRAWAL';
+  stellarTxId?: string;
+  externalTxId?: string;
+  amount: string;
+  assetCode: string;
+  status: string;
+  rawDetails?: Record<string, unknown>;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 // Settlement Adapter types
