@@ -1,0 +1,323 @@
+import pg from 'pg';
+
+export const SCHEMA_SQL = `
+-- Enable UUID and pgcrypto extensions
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+-- 1. Users
+CREATE TABLE IF NOT EXISTS users (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  phone_e164 VARCHAR(20) NOT NULL UNIQUE,
+  name VARCHAR(255),
+  pin_hash TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 2. Cheques
+CREATE TABLE IF NOT EXISTS cheques (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  public_code VARCHAR(20) NOT NULL UNIQUE,
+  claim_token_hash VARCHAR(64) NOT NULL UNIQUE,
+  sender_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  payee_name VARCHAR(255) NOT NULL,
+  payee_phone_e164 VARCHAR(20) NOT NULL,
+  face_amount_ghs_minor BIGINT NOT NULL CHECK (face_amount_ghs_minor > 0),
+  fee_minor BIGINT NOT NULL DEFAULT 0 CHECK (fee_minor >= 0),
+  note VARCHAR(80),
+  state VARCHAR(32) NOT NULL CHECK (
+    state IN (
+      'DRAFT', 'PENDING_FUNDING', 'ACTIVE', 'CLAIMING', 'AUTHORIZED',
+      'SETTLING', 'SETTLED', 'CANCELLED', 'EXPIRED', 'REFUNDING',
+      'REFUNDED', 'REFUND_REVIEW'
+    )
+  ),
+  expires_at TIMESTAMPTZ NOT NULL,
+  quote_id VARCHAR(128),
+  usdc_amount_stroops BIGINT CHECK (usdc_amount_stroops IS NULL OR usdc_amount_stroops > 0),
+  fx_rate NUMERIC(18, 6),
+  version INT NOT NULL DEFAULT 1 CHECK (version >= 1),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_cheques_state ON cheques(state);
+CREATE INDEX IF NOT EXISTS idx_cheques_sender_id ON cheques(sender_id);
+CREATE INDEX IF NOT EXISTS idx_cheques_payee_phone ON cheques(payee_phone_e164);
+
+-- 3. Fundings
+CREATE TABLE IF NOT EXISTS fundings (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  cheque_id UUID NOT NULL REFERENCES cheques(id) ON DELETE CASCADE,
+  method VARCHAR(20) NOT NULL CHECK (method IN ('MOMO', 'USDC')),
+  status VARCHAR(20) NOT NULL CHECK (status IN ('PENDING', 'CONFIRMED', 'FAILED', 'EXPIRED')),
+  amount_minor BIGINT NOT NULL CHECK (amount_minor > 0),
+  provider_ref VARCHAR(255),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_fundings_cheque_id ON fundings(cheque_id);
+
+-- 4. Claim Sessions
+CREATE TABLE IF NOT EXISTS claim_sessions (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  cheque_id UUID NOT NULL REFERENCES cheques(id) ON DELETE CASCADE,
+  otp_hash VARCHAR(64) NOT NULL,
+  attempts INT NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+  max_attempts INT NOT NULL DEFAULT 5,
+  verified_at TIMESTAMPTZ,
+  expires_at TIMESTAMPTZ NOT NULL,
+  device_fp VARCHAR(255),
+  session_token VARCHAR(255),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_claim_sessions_cheque_id ON claim_sessions(cheque_id);
+
+-- 5. Destinations
+CREATE TABLE IF NOT EXISTS destinations (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  cheque_id UUID NOT NULL REFERENCES cheques(id) ON DELETE CASCADE,
+  type VARCHAR(20) NOT NULL CHECK (type IN ('MOMO', 'USDC', 'BANK')),
+  network VARCHAR(20),
+  account_ref VARCHAR(255) NOT NULL,
+  account_name VARCHAR(255),
+  verified_name_match BOOLEAN NOT NULL DEFAULT FALSE,
+  memo VARCHAR(64),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_destinations_cheque_id ON destinations(cheque_id);
+
+-- 6. Payouts (with Partial Unique Index constraint)
+CREATE TABLE IF NOT EXISTS payouts (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  cheque_id UUID NOT NULL REFERENCES cheques(id) ON DELETE CASCADE,
+  destination_id UUID NOT NULL REFERENCES destinations(id) ON DELETE RESTRICT,
+  status VARCHAR(20) NOT NULL CHECK (status IN ('PENDING', 'SENT', 'CONFIRMED', 'FAILED')),
+  provider_ref VARCHAR(255),
+  idempotency_key VARCHAR(255) NOT NULL UNIQUE,
+  amount_minor BIGINT NOT NULL CHECK (amount_minor > 0),
+  attempts INT NOT NULL DEFAULT 0,
+  last_error TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Constraint: partial unique index payouts(cheque_id) WHERE status IN ('PENDING','SENT','CONFIRMED')
+CREATE UNIQUE INDEX IF NOT EXISTS idx_payouts_active_cheque
+  ON payouts(cheque_id)
+  WHERE status IN ('PENDING', 'SENT', 'CONFIRMED');
+
+-- 7. Refunds
+CREATE TABLE IF NOT EXISTS refunds (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  cheque_id UUID NOT NULL REFERENCES cheques(id) ON DELETE CASCADE,
+  method VARCHAR(20) NOT NULL CHECK (method IN ('MOMO', 'USDC')),
+  status VARCHAR(20) NOT NULL CHECK (status IN ('PENDING', 'CONFIRMED', 'FAILED', 'REVIEW')),
+  provider_ref VARCHAR(255),
+  amount_minor BIGINT NOT NULL CHECK (amount_minor > 0),
+  reason TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_refunds_cheque_id ON refunds(cheque_id);
+
+-- 8. Ledger Entries (Double-Entry Ledger with Amount Checks)
+CREATE TABLE IF NOT EXISTS ledger_entries (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  tx_id UUID NOT NULL,
+  account VARCHAR(64) NOT NULL CHECK (
+    account IN (
+      'sender_funds', 'cheque_escrow_onchain', 'payout_pending',
+      'settled', 'fees', 'fx_buffer', 'refunds_pending'
+    )
+  ),
+  debit_minor BIGINT NOT NULL DEFAULT 0 CHECK (debit_minor >= 0),
+  credit_minor BIGINT NOT NULL DEFAULT 0 CHECK (credit_minor >= 0),
+  cheque_id UUID REFERENCES cheques(id) ON DELETE SET NULL,
+  currency VARCHAR(10) NOT NULL CHECK (currency IN ('GHS', 'USDC')),
+  description TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT check_debit_or_credit CHECK (
+    (debit_minor > 0 AND credit_minor = 0) OR
+    (credit_minor > 0 AND debit_minor = 0)
+  )
+);
+
+CREATE INDEX IF NOT EXISTS idx_ledger_entries_tx_id ON ledger_entries(tx_id);
+CREATE INDEX IF NOT EXISTS idx_ledger_entries_account ON ledger_entries(account);
+CREATE INDEX IF NOT EXISTS idx_ledger_entries_cheque_id ON ledger_entries(cheque_id);
+
+-- 9. Events (Audit Trail)
+CREATE TABLE IF NOT EXISTS events (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  cheque_id UUID REFERENCES cheques(id) ON DELETE CASCADE,
+  event_type VARCHAR(64) NOT NULL,
+  from_state VARCHAR(32),
+  to_state VARCHAR(32),
+  actor VARCHAR(64) NOT NULL,
+  payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_events_cheque_id ON events(cheque_id);
+CREATE INDEX IF NOT EXISTS idx_events_event_type ON events(event_type);
+
+-- 10. Webhook Events (Unique constraint on (provider, event_id))
+CREATE TABLE IF NOT EXISTS webhook_events (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  provider VARCHAR(64) NOT NULL,
+  event_id VARCHAR(255) NOT NULL,
+  payload JSONB NOT NULL,
+  processed BOOLEAN NOT NULL DEFAULT FALSE,
+  processed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT uq_webhook_events_provider_event UNIQUE (provider, event_id)
+);
+
+-- 11. Outbox
+CREATE TABLE IF NOT EXISTS outbox (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  topic VARCHAR(128) NOT NULL,
+  aggregate_type VARCHAR(64) NOT NULL,
+  aggregate_id VARCHAR(255) NOT NULL,
+  payload JSONB NOT NULL,
+  status VARCHAR(32) NOT NULL DEFAULT 'PENDING' CHECK (
+    status IN ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED', 'DEAD_LETTER')
+  ),
+  attempts INT NOT NULL DEFAULT 0,
+  max_attempts INT NOT NULL DEFAULT 5,
+  backoff_ms INT NOT NULL DEFAULT 1000,
+  next_run_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  locked_at TIMESTAMPTZ,
+  locked_by VARCHAR(255),
+  last_error TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_outbox_pending ON outbox(status, next_run_at)
+  WHERE status IN ('PENDING', 'FAILED');
+
+-- 12. Idempotency Keys
+CREATE TABLE IF NOT EXISTS idempotency_keys (
+  key VARCHAR(255) PRIMARY KEY,
+  scope VARCHAR(64) NOT NULL,
+  request_hash VARCHAR(64),
+  response_code INT,
+  response_body JSONB,
+  status VARCHAR(32) NOT NULL CHECK (status IN ('IN_PROGRESS', 'COMPLETED', 'FAILED')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at TIMESTAMPTZ NOT NULL
+);
+
+-- 13. Chain Txs
+CREATE TABLE IF NOT EXISTS chain_txs (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  cheque_id UUID REFERENCES cheques(id) ON DELETE CASCADE,
+  operation VARCHAR(32) NOT NULL,
+  tx_hash VARCHAR(64) NOT NULL UNIQUE,
+  signed_xdr TEXT NOT NULL,
+  status VARCHAR(32) NOT NULL CHECK (status IN ('SUBMITTED', 'CONFIRMED', 'FAILED', 'EXPIRED')),
+  ledger BIGINT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_chain_txs_cheque_id ON chain_txs(cheque_id);
+
+-- 14. Chain Events
+CREATE TABLE IF NOT EXISTS chain_events (
+  id VARCHAR(128) PRIMARY KEY, -- \${tx_hash}:\${event_index}
+  tx_hash VARCHAR(64) NOT NULL,
+  event_index INT NOT NULL,
+  ledger BIGINT NOT NULL,
+  contract_id VARCHAR(64) NOT NULL,
+  topic VARCHAR(32) NOT NULL,
+  cheque_id_hex VARCHAR(64) NOT NULL,
+  payload JSONB NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT uq_chain_events_tx_index UNIQUE (tx_hash, event_index)
+);
+
+CREATE INDEX IF NOT EXISTS idx_chain_events_cheque_hex ON chain_events(cheque_id_hex);
+
+-- 15. Anchor Txs
+CREATE TABLE IF NOT EXISTS anchor_txs (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  cheque_id UUID REFERENCES cheques(id) ON DELETE CASCADE,
+  anchor_provider VARCHAR(64) NOT NULL,
+  tx_type VARCHAR(32) NOT NULL CHECK (tx_type IN ('DEPOSIT', 'WITHDRAWAL')),
+  stellar_tx_id VARCHAR(64),
+  external_tx_id VARCHAR(255),
+  amount NUMERIC(20, 7) NOT NULL,
+  asset_code VARCHAR(12) NOT NULL,
+  status VARCHAR(32) NOT NULL,
+  raw_details JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_anchor_txs_cheque_id ON anchor_txs(cheque_id);
+
+-- 16. Reconciliation View (Comparing Off-Chain State with Chain Events)
+CREATE OR REPLACE VIEW reconciliation_view AS
+WITH latest_chain_events AS (
+  SELECT DISTINCT ON (cheque_id_hex)
+    cheque_id_hex,
+    topic AS last_chain_event,
+    ledger AS last_chain_ledger,
+    tx_hash AS last_chain_tx_hash,
+    created_at AS last_event_at
+  FROM chain_events
+  ORDER BY cheque_id_hex, ledger DESC, event_index DESC
+)
+SELECT
+  c.id AS cheque_id,
+  c.public_code,
+  c.state AS offchain_state,
+  lce.last_chain_event,
+  lce.last_chain_ledger,
+  lce.last_chain_tx_hash,
+  CASE
+    -- State matching logic:
+    -- DRAFT, PENDING_FUNDING: not yet on-chain
+    WHEN c.state IN ('DRAFT', 'PENDING_FUNDING') AND lce.last_chain_event IS NULL THEN TRUE
+    -- ACTIVE: on-chain 'created' or 'unlocked' or 'vetoed'
+    WHEN c.state = 'ACTIVE' AND lce.last_chain_event IN ('created', 'unlocked', 'vetoed') THEN TRUE
+    -- CLAIMING / AUTHORIZED: on-chain 'locked'
+    WHEN c.state IN ('CLAIMING', 'AUTHORIZED') AND lce.last_chain_event = 'locked' THEN TRUE
+    -- SETTLING / SETTLED: on-chain 'redeemed'
+    WHEN c.state IN ('SETTLING', 'SETTLED') AND lce.last_chain_event = 'redeemed' THEN TRUE
+    -- CANCELLED: on-chain 'cancelled'
+    WHEN c.state = 'CANCELLED' AND lce.last_chain_event = 'cancelled' THEN TRUE
+    -- REFUNDING / REFUNDED: on-chain 'refunded'
+    WHEN c.state IN ('REFUNDING', 'REFUNDED') AND lce.last_chain_event = 'refunded' THEN TRUE
+    ELSE FALSE
+  END AS is_reconciled,
+  CASE
+    WHEN c.state IN ('DRAFT', 'PENDING_FUNDING') AND lce.last_chain_event IS NOT NULL
+      THEN 'Cheque is draft/pending off-chain but event already exists on chain'
+    WHEN c.state = 'ACTIVE' AND lce.last_chain_event IS NULL
+      THEN 'Cheque is active off-chain but no created event found on chain'
+    WHEN c.state = 'SETTLED' AND lce.last_chain_event != 'redeemed'
+      THEN 'Cheque marked settled off-chain but chain event is not redeemed'
+    WHEN c.state = 'REFUNDED' AND lce.last_chain_event != 'refunded'
+      THEN 'Cheque marked refunded off-chain but chain event is not refunded'
+    WHEN c.state = 'CANCELLED' AND lce.last_chain_event != 'cancelled'
+      THEN 'Cheque marked cancelled off-chain but chain event is not cancelled'
+    ELSE 'OK'
+  END AS reconciliation_status
+FROM cheques c
+LEFT JOIN latest_chain_events lce
+  ON replace(c.id::text, '-', '') = lce.cheque_id_hex
+  OR lce.cheque_id_hex = encode(digest(c.id::text, 'sha256'), 'hex');
+`;
+
+export async function runMigrations(clientOrPool: pg.Pool | pg.PoolClient): Promise<void> {
+  await clientOrPool.query(SCHEMA_SQL);
+}

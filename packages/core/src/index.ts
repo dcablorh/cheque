@@ -6,3 +6,8 @@ export * from './state-machine.js';
 export * from './ledger.js';
 export * from './adapter.js';
 export * from './schemas.js';
+export * from './db.js';
+export * from './migrations.js';
+export * from './transition.js';
+export * from './reconciliation.js';
+export * from './outbox.js';
