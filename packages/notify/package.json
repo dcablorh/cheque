@@ -10,10 +10,13 @@
   },
   "dependencies": {
     "@cheque/core": "workspace:*",
-    "@cheque/shared": "workspace:*"
+    "@cheque/shared": "workspace:*",
+    "ioredis": "^6.0.0",
+    "pg": "^8.23.1"
   },
   "devDependencies": {
     "@types/node": "^20.17.0",
+    "@types/pg": "^8.23.1",
     "typescript": "^5.6.3",
     "vitest": "^2.1.8"
   }
