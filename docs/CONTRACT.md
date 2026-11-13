@@ -1,4 +1,4 @@
-# Soroban Escrow Smart Contract Specification (`contracts/cheque`)
+# Soroban Escrow Smart Contract Specification (`contract/cheque`)
 
 ## 1. Overview
 The **Cheque Escrow Contract** is a high-assurance Soroban smart contract written in Rust (`soroban-sdk = "22"`). It provides on-chain escrow, single-redemption enforcement, and time-locked settlements for Digital Cheques denominated in USDC on the Stellar network.
@@ -50,11 +50,20 @@ Key: `DataKey::Cheque(BytesN<32>)`
 *   `amount`: `i128` — Stroops locked in escrow.
 *   `expires_at`: `u64` — Unix timestamp after which anyone can trigger refund.
 *   `state`: `ChequeState` — `Active` (1), `Locked` (2), `Redeemed` (3), `Cancelled` (4), `Refunded` (5).
-*   `lock`: `Option<LockInfo>`:
-    *   `to`: `Address` — Recipient destination address.
-    *   `locked_at`: `u64`
-    *   `unlock_after`: `u64`
-    *   `executable_after`: `u64`
+
+### Persistent Storage (Per Lock)
+Key: `DataKey::Lock(BytesN<32>)` — present only while the cheque is `Locked`; read via `get_lock(cheque_id) -> Option<LockInfo>`.
+(Kept in a separate entry because nesting `Option<LockInfo>` inside `Cheque` does not compile under soroban-sdk 22 `testutils`.)
+*   `to`: `Address` — Recipient destination address. For MoMo payouts this is the **settlement account**, which then makes a classic USDC payment with the anchor memo.
+*   `locked_at`: `u64`
+*   `unlock_after`: `u64`
+*   `executable_after`: `u64`
+
+### Cheque ID
+The on-chain `BytesN<32>` id is `sha256(utf8(cheque_uuid))` (`deriveChequeIdHex` in `packages/chain/src/cheque-id.ts`).
+
+### Building & deploying
+Soroban rejects WASM from `wasm32-unknown-unknown` on modern Rust (reference-types). Build with the `wasm32v1-none` target: `pnpm build:contract`, then `pnpm deploy:contract`.
 
 ---
 
