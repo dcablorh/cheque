@@ -6,13 +6,19 @@ import { Check, ChevronRight, Copy, LogOut, MessageCircle, Plus, RefreshCw, Send
 import {
   ApiError,
   authed,
+  fmtDate,
   fmtMoney,
   publicApi,
+  sanitizeAmount,
   session,
   timeLeft,
   type AppConfig,
   type ChequeSummary,
 } from '@/lib/api';
+import { SignaturePad } from '@/components/SignaturePad';
+import { DepositCard } from '@/components/DepositCard';
+import { WalletButton } from '@/components/WalletButton';
+import { useWallet } from '@/lib/wallet';
 import { ChequePaper, ErrorNote, Logo, Spinner, StatusPill } from '@/components/ui';
 import { COUNTRIES, COUNTRY_LIST, toE164, type CountryCode } from '@/lib/countries';
 
@@ -31,6 +37,23 @@ const saveLink = (id: string, url: string) => {
     /* storage unavailable */
   }
 };
+
+/** prepare -> wallet signs -> submit, for a deposit ('create') or a cancel. */
+async function runWalletTx(
+  id: string,
+  op: 'create' | 'cancel',
+  sign: (xdr: string, networkPassphrase: string) => Promise<string>
+) {
+  const prep = await authed<{ xdr: string; networkPassphrase: string }>(`/cheques/${id}/tx/prepare`, {
+    method: 'POST',
+    body: JSON.stringify({ op }),
+  });
+  const signedXdr = await sign(prep.xdr, prep.networkPassphrase);
+  return authed<{ state: string; txHash: string }>(`/cheques/${id}/tx/submit`, {
+    method: 'POST',
+    body: JSON.stringify({ op, signedXdr }),
+  });
+}
 
 type View = 'list' | 'new' | { shared: string };
 
@@ -61,18 +84,30 @@ function SignIn({ onDone }: { onDone: () => void }) {
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [resendIn, setResendIn] = useState(0);
+  const [notice, setNotice] = useState('');
 
   const c = COUNTRIES[country];
   const e164 = toE164(phone, country);
 
-  async function requestCode(e: React.FormEvent) {
-    e.preventDefault();
+  // Count down before a new code can be requested, so people do not spam the SMS endpoint.
+  useEffect(() => {
+    if (resendIn <= 0) return;
+    const t = setTimeout(() => setResendIn((n) => n - 1), 1000);
+    return () => clearTimeout(t);
+  }, [resendIn]);
+
+  async function requestCode(e?: React.FormEvent) {
+    e?.preventDefault();
     if (!e164) return setError(`Enter a valid ${c.name} number, e.g. ${c.phonePlaceholder}.`);
     setBusy(true);
     setError('');
+    setNotice('');
     try {
       await publicApi.post('/auth/otp/request', { phone: e164 });
       setStep('code');
+      setResendIn(30);
+      setNotice(step === 'code' ? 'A new code is on its way.' : '');
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Something went wrong.');
     } finally {
@@ -143,13 +178,21 @@ function SignIn({ onDone }: { onDone: () => void }) {
               <label className="label" htmlFor="name">Your name <span className="font-normal normal-case text-ink-mute">(first time only)</span></label>
               <input id="name" className="field" placeholder="Ama Owusu" value={name} onChange={(e) => setName(e.target.value)} />
             </div>
+            {notice && <p className="text-sm text-brand-700">{notice}</p>}
             <ErrorNote>{error}</ErrorNote>
             <button className="btn-primary w-full" disabled={busy || code.length !== 6}>
               {busy && <Spinner />} Verify and continue
             </button>
-            <button type="button" className="w-full text-sm text-ink-soft underline" onClick={() => { setStep('phone'); setCode(''); setError(''); }}>
-              Use a different number
-            </button>
+            <div className="flex items-center justify-between text-sm">
+              <button type="button" className="text-ink-soft underline disabled:no-underline disabled:opacity-50"
+                onClick={() => { setStep('phone'); setCode(''); setError(''); setNotice(''); }}>
+                Use a different number
+              </button>
+              <button type="button" className="text-ink-soft underline disabled:no-underline disabled:opacity-50"
+                onClick={() => requestCode()} disabled={busy || resendIn > 0}>
+                {resendIn > 0 ? `Resend in ${resendIn}s` : 'Resend code'}
+              </button>
+            </div>
           </form>
         )}
       </div>
@@ -187,12 +230,13 @@ function Dashboard({ onSignOut }: { onSignOut: () => void }) {
   const shared = typeof view === 'object' ? cheques?.find((c) => c.id === view.shared) : undefined;
 
   return (
-    <main className="mx-auto max-w-3xl px-5 pb-20 pt-6">
+    <main className="mx-auto max-w-4xl px-5 pb-20 pt-6">
       <header className="flex items-center justify-between">
         <Link href="/"><Logo /></Link>
         <div className="flex items-center gap-2">
+          <WalletButton />
           <span className="hidden text-sm text-ink-soft sm:block">{s?.name ?? s?.phone}</span>
-          <button className="btn-ghost !px-3" onClick={onSignOut} aria-label="Sign out"><LogOut className="h-4 w-4" /></button>
+          <button className="btn-ghost !px-3" onClick={onSignOut} aria-label="Sign out" title="Sign out"><LogOut className="h-4 w-4" /></button>
         </div>
       </header>
 
@@ -238,7 +282,7 @@ function Dashboard({ onSignOut }: { onSignOut: () => void }) {
                 <div className="min-w-0 basis-full sm:basis-auto sm:flex-1">
                   <p className="truncate display ">{c.payeeName}</p>
                   <p className="mt-1 truncate font-mono text-xs text-ink-mute">
-                    {c.publicCode} · {['ACTIVE', 'CLAIMING'].includes(c.state) ? timeLeft(c.expiresAt) : new Date(c.createdAt).toLocaleDateString()}
+                    {c.publicCode} · {['ACTIVE', 'CLAIMING'].includes(c.state) ? timeLeft(c.expiresAt) : fmtDate(c.createdAt)}
                   </p>
                 </div>
                 <StatusPill state={c.state} />
@@ -264,20 +308,32 @@ const EXPIRIES = [
 function NewCheque({ config, onCancel, onCreated }: { config: AppConfig; onCancel: () => void; onCreated: (id: string) => void }) {
   const [corridor, setCorridor] = useState<CountryCode>(config.corridors[0]?.code ?? 'GH');
   const [name, setName] = useState('');
-  const [kind, setKind] = useState<'PHONE' | 'EMAIL'>('PHONE');
-  const [contact, setContact] = useState('');
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
+  const [signature, setSignature] = useState<string | null>(null);
+  const [depositOk, setDepositOk] = useState(false);
+  const { address, sign } = useWallet();
+  const [chequeNo] = useState(() => {
+    const cs = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+    return 'CHQ-' + Array.from({ length: 6 }, () => cs[Math.floor(Math.random() * cs.length)]).join('');
+  });
+  const today = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
   const [hours, setHours] = useState(48);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
   const country = COUNTRIES[corridor];
   const limits = config.corridors.find((x) => x.code === corridor) ?? config.corridors[0];
-  const value = kind === 'PHONE' ? toE164(contact, corridor) : contact.trim().toLowerCase();
   const amt = Number(amount);
   const fee = useMemo(() => (amt > 0 ? (amt * config.feeBps) / 10000 : 0), [amt, config.feeBps]);
-  const valid = name.trim().length >= 2 && !!value && !!limits && amt >= limits.minAmount && amt <= limits.maxAmount;
+  const outOfRange = !!limits && amt > 0 && (amt < limits.minAmount || amt > limits.maxAmount);
+  const valid = name.trim().length >= 2 && !!limits && amt >= limits.minAmount && amt <= limits.maxAmount && depositOk;
+  // Tell the sender what is still missing, instead of leaving a silently disabled button.
+  const missing: string[] = [];
+  if (name.trim().length < 2) missing.push('recipient name');
+  if (!limits || amt <= 0) missing.push('amount');
+  else if (outOfRange) missing.push('an amount within the limits');
+  if (config.walletFunding && !depositOk) missing.push('a USDC wallet with enough funds');
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -288,14 +344,24 @@ function NewCheque({ config, onCancel, onCreated }: { config: AppConfig; onCance
         method: 'POST',
         body: JSON.stringify({
           payeeName: name.trim(),
-          payeeContact: { type: kind, value },
           corridor,
           amount: amt,
           note: note.trim() || undefined,
+          signature: signature ?? undefined,
+          publicCode: chequeNo,
+          funderAddress: config.walletFunding ? address ?? undefined : undefined,
           expiryHours: hours,
         }),
       });
       saveLink(r.id, r.claimUrl);
+      if (config.walletFunding && address) {
+        try {
+          await runWalletTx(r.id, 'create', sign);
+        } catch (err) {
+          // The cheque exists; the share screen offers "Deposit now" to retry.
+          saveLink(r.id, r.claimUrl);
+        }
+      }
       onCreated(r.id);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Something went wrong.');
@@ -304,103 +370,109 @@ function NewCheque({ config, onCancel, onCreated }: { config: AppConfig; onCance
     }
   }
 
+  const input = '!px-3 !py-2.5 !text-sm';
   return (
-    <form onSubmit={submit} className="mt-8 grid animate-rise gap-6 lg:grid-cols-[1fr_320px]">
-      <div className="card space-y-5 p-6">
-        <div>
-          <h1 className="display ">New cheque</h1>
-          <p className="mt-1 text-sm text-ink-soft">Funds are escrowed on-chain the moment you issue it.</p>
-        </div>
+    <form onSubmit={submit} className="mt-6 animate-rise space-y-5">
+      <div>
+        <h1 className="display">New cheque</h1>
+        <p className="mt-1 text-sm text-ink-soft">Write it, share the link. Whoever holds the link can claim it.</p>
+      </div>
 
+      <ChequePaper currency={country.currency} amountValue={amt || 0} amount={fmtMoney(amt || 0, country.currency)} payee={name.trim() || 'Recipient name'} note={note.trim() || null}
+        from={session.get()?.name ?? 'You'} code={chequeNo} date={today} signature={signature} />
+
+      <div className="card grid gap-5 p-4 md:grid-cols-2">
+        <div className="space-y-3">
         <div>
-          <label className="label" htmlFor="corridor">Sending to</label>
-          <select id="corridor" className="field" value={corridor}
-            onChange={(e) => { setCorridor(e.target.value as CountryCode); setContact(''); setAmount(''); }}>
+          <label className="label !mb-1 !text-[10px]" htmlFor="corridor">Sending to</label>
+          <select id="corridor" className={`field ${input}`} value={corridor}
+            onChange={(e) => { setCorridor(e.target.value as CountryCode); setAmount(''); }}>
             {config.corridors.map((x) => (
               <option key={x.code} value={x.code}>{COUNTRIES[x.code].flag} {x.name} · {x.currency}</option>
             ))}
           </select>
-          <p className="mt-1.5 text-xs text-ink-mute">
-            They can cash out to {country.localRail.toLowerCase()} or a USDC wallet.
-          </p>
         </div>
 
         <div>
-          <label className="label" htmlFor="payee">Recipient name</label>
-          <input id="payee" className="field" placeholder="Kojo Mensah" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+          <label className="label !mb-1 !text-[10px]" htmlFor="payee">Recipient name</label>
+          <input id="payee" className={`field ${input}`} placeholder="Kojo Mensah" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
         </div>
 
         <div>
-          <div className="mb-1.5 flex items-center justify-between">
-            <label className="label !mb-0" htmlFor="contact">{kind === 'PHONE' ? 'Phone number' : 'Email'}</label>
-            <button type="button" className="text-xs font-semibold text-brand-700 underline"
-              onClick={() => { setKind(kind === 'PHONE' ? 'EMAIL' : 'PHONE'); setContact(''); }}>
-              Use {kind === 'PHONE' ? 'email' : 'phone'} instead
-            </button>
-          </div>
-          <input id="contact" className="field" inputMode={kind === 'PHONE' ? 'tel' : 'email'}
-            placeholder={kind === 'PHONE' ? country.phonePlaceholder : 'name@example.com'} value={contact} onChange={(e) => setContact(e.target.value)} />
-          {kind === 'PHONE' && value && (
-            <p className="mt-1.5 text-sm text-ink-soft">Sending to <span className="font-mono font-semibold text-ink">{value}</span> — double-check this.</p>
-          )}
-        </div>
-
-        <div>
-          <label className="label" htmlFor="amount">Amount ({country.currency})</label>
+          <label className="label !mb-1 !text-[10px]" htmlFor="amount">Amount ({country.currency})</label>
           <div className="relative">
-            <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 display text-3xl text-ink-mute">{country.symbol}</span>
-            <input id="amount" className="field pl-10 display text-3xl tabular-nums" inputMode="decimal" placeholder="0.00"
-              value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^\d.]/g, ''))} />
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-ink-mute">{country.symbol}</span>
+            <input id="amount" className={`field ${input} !pl-8 tabular-nums`} inputMode="decimal" placeholder="0.00"
+              value={amount} onChange={(e) => setAmount(sanitizeAmount(e.target.value))} />
           </div>
           {limits && (
-            <p className="mt-1.5 text-xs text-ink-mute">
-              Between {fmtMoney(limits.minAmount, country.currency)} and {fmtMoney(limits.maxAmount, country.currency)}.
+            <p className={`mt-1 text-[11px] ${outOfRange ? 'font-semibold text-cedi' : 'text-ink-mute'}`}>
+              {outOfRange
+                ? amt > limits.maxAmount
+                  ? `Too high: the most you can send is ${fmtMoney(limits.maxAmount, country.currency)}.`
+                  : `Too low: the least you can send is ${fmtMoney(limits.minAmount, country.currency)}.`
+                : `${fmtMoney(limits.minAmount, country.currency)} to ${fmtMoney(limits.maxAmount, country.currency)}`}
             </p>
           )}
         </div>
 
         <div>
-          <label className="label" htmlFor="note">Note <span className="font-normal normal-case text-ink-mute">(optional)</span></label>
-          <input id="note" className="field" maxLength={80} placeholder="For rent" value={note} onChange={(e) => setNote(e.target.value)} />
+          <label className="label !mb-1 !text-[10px]" htmlFor="note">Note <span className="font-normal normal-case">(optional)</span></label>
+          <input id="note" className={`field ${input}`} maxLength={80} placeholder="For rent" value={note} onChange={(e) => setNote(e.target.value)} />
         </div>
 
         <div>
-          <span className="label">Expires after</span>
+          <span className="label !mb-1 !text-[10px]">Expires after</span>
           <div className="flex gap-2">
             {EXPIRIES.map((x) => (
               <button type="button" key={x.h} onClick={() => setHours(x.h)} aria-pressed={hours === x.h}
-                className={`flex-1 rounded-[10px] border px-3 py-2.5 text-sm font-semibold transition ${hours === x.h ? 'border-night bg-night text-paper' : 'border-ink/15 bg-white text-ink-soft hover:border-ink/30'}`}>
+                className={`flex-1 rounded-[10px] border px-3 py-2 text-xs font-semibold transition ${hours === x.h ? 'border-night bg-night text-paper' : 'border-ink/15 bg-white text-ink-soft hover:border-ink/30'}`}>
                 {x.label}
               </button>
             ))}
           </div>
         </div>
+        </div>
+        <div className="flex flex-col">
+          <span className="label !mb-1 !text-[10px]">Your signature <span className="font-normal normal-case">(optional, appears on the cheque)</span></span>
+          <div className="relative flex-1 overflow-hidden rounded-[10px] border border-sage/60 bg-white">
+            <SignaturePad onChange={setSignature} className="h-full min-h-[190px]" hint="Draw your signature here" />
+          </div>
+        </div>
       </div>
 
-      <aside className="space-y-4 lg:sticky lg:top-6 lg:self-start">
-        <ChequePaper compact currency={country.currency} amountValue={amt || 0} amount={fmtMoney(amt || 0, country.currency)} payee={name.trim() || 'Recipient name'} note={note.trim() || null}
-          from={session.get()?.name ?? 'You'} code="CHQ-••••••" />
-        <div className="card space-y-2 p-5 text-sm">
-          <Row k="Cheque amount" v={fmtMoney(amt || 0, country.currency)} />
-          <Row k={`Fee (${config.feeBps / 100}%)`} v={fmtMoney(fee, country.currency)} />
-          <div className="border-t border-ink/10 pt-2"><Row k="You pay" v={fmtMoney((amt || 0) + fee, country.currency)} bold /></div>
-          <p className="pt-1 text-xs text-ink-mute">Unclaimed cheques are refunded automatically when they expire.</p>
-        </div>
-        <ErrorNote>{error}</ErrorNote>
+      {limits && (
+        <DepositCard
+          config={config}
+          corridor={limits}
+          amount={amt || 0}
+          fee={fee}
+          onAmountChange={(v) => setAmount(v > 0 ? String(v) : '')}
+          onReady={setDepositOk}
+        />
+      )}
+
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <p className="max-w-xs text-xs text-ink-mute">
+          {!valid && !busy && missing.length > 0
+            ? `To issue, add ${missing.join(', ')}.`
+            : 'Unclaimed cheques are refunded to the depositing wallet when they expire.'}
+        </p>
         <div className="flex gap-3">
-          <button type="button" className="btn-ghost" onClick={onCancel}>Cancel</button>
-          <button className="btn-primary flex-1" disabled={!valid || busy}>
-            {busy ? <Spinner /> : <Send className="h-4 w-4" />} Issue cheque
+          <button type="button" className="btn-ghost" onClick={onCancel} disabled={busy}>Cancel</button>
+          <button className="btn-primary" disabled={!valid || busy}>
+            {busy ? <Spinner /> : <Send className="h-4 w-4" />} {busy ? 'Issuing…' : 'Issue cheque'}
           </button>
         </div>
-      </aside>
+      </div>
+      <ErrorNote>{error}</ErrorNote>
     </form>
   );
 }
 
 function Row({ k, v, bold }: { k: string; v: string; bold?: boolean }) {
   return (
-    <div className={`flex justify-between ${bold ? 'font-semibold text-ink' : 'text-ink-soft'}`}>
+    <div className={`flex justify-between gap-4 ${bold ? 'font-semibold text-ink' : 'text-ink-soft'}`}>
       <span>{k}</span>
       <span className="tabular-nums">{v}</span>
     </div>
@@ -410,8 +482,10 @@ function Row({ k, v, bold }: { k: string; v: string; bold?: boolean }) {
 /* -------------------------------------------------------------------------- share / detail */
 
 function SharePanel({ cheque, id, onBack }: { cheque?: ChequeSummary; id: string; onBack: () => void }) {
+  const { sign } = useWallet();
   const [url, setUrl] = useState<string>();
   const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -423,13 +497,31 @@ function SharePanel({ cheque, id, onBack }: { cheque?: ChequeSummary; id: string
   const waText = url
     ? `Hi ${cheque.payeeName.split(' ')[0]}, I've sent you a ${fmtMoney(cheque.amount, cheque.currency)} cheque. Open to claim: ${url}`
     : '';
-  const wa = cheque.payeeContact.type === 'PHONE'
-    ? `https://wa.me/${cheque.payeeContact.value.replace('+', '')}?text=${encodeURIComponent(waText)}`
-    : `https://wa.me/?text=${encodeURIComponent(waText)}`;
+  const wa = `https://wa.me/?text=${encodeURIComponent(waText)}`;
 
   async function copy() {
     if (!url) return;
-    try { await navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 1800); } catch { /* ignore */ }
+    setCopyFailed(false);
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {
+      // Clipboard can be blocked (insecure origin, permissions). Let them select the text instead.
+      setCopyFailed(true);
+    }
+  }
+
+  async function depositNow() {
+    setBusy(true);
+    setError('');
+    try {
+      await runWalletTx(id, 'create', sign);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : (e as Error).message || 'Deposit failed.');
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function cancel() {
@@ -437,7 +529,8 @@ function SharePanel({ cheque, id, onBack }: { cheque?: ChequeSummary; id: string
     setBusy(true);
     setError('');
     try {
-      await authed(`/cheques/${id}/cancel`, { method: 'POST' });
+      if (cheque?.funderAddress) await runWalletTx(id, 'cancel', sign);
+      else await authed(`/cheques/${id}/cancel`, { method: 'POST' });
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Could not cancel.');
     } finally {
@@ -448,18 +541,26 @@ function SharePanel({ cheque, id, onBack }: { cheque?: ChequeSummary; id: string
   return (
     <div className="mt-8 animate-rise">
       <button onClick={onBack} className="mb-4 text-sm font-semibold text-ink-soft hover:text-ink">← All cheques</button>
-      <ChequePaper currency={cheque.currency} amountValue={cheque.amount} date={new Date(cheque.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} amount={fmtMoney(cheque.amount, cheque.currency)} payee={cheque.payeeName} note={cheque.note} code={cheque.publicCode}
+      <ChequePaper currency={cheque.currency} amountValue={cheque.amount} date={fmtDate(cheque.createdAt)} amount={fmtMoney(cheque.amount, cheque.currency)} payee={cheque.payeeName} note={cheque.note} signature={cheque.signature} code={cheque.publicCode}
         stamp={cheque.state === 'SETTLED' ? 'Paid' : cheque.state === 'CANCELLED' ? 'Void' : undefined}
         footer={
           <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
             <StatusPill state={cheque.state} />
             <span className="text-ink-soft">
-              {cheque.payeeContact.value} · {['ACTIVE', 'CLAIMING'].includes(cheque.state) ? timeLeft(cheque.expiresAt) : ''}
+              {['ACTIVE', 'CLAIMING'].includes(cheque.state) ? timeLeft(cheque.expiresAt) : ''}
             </span>
           </div>
         } />
 
-      {cheque.state === 'PENDING_FUNDING' && (
+      {cheque.state === 'PENDING_FUNDING' && cheque.funderAddress && (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-[10px] border border-gold-400/50 bg-gold-300/30 px-4 py-3 text-sm text-[#5c4300]">
+          <span>Waiting for your USDC deposit. Approve it in your wallet to activate this cheque.</span>
+          <button type="button" className="btn-primary !py-2" onClick={depositNow} disabled={busy}>
+            {busy && <Spinner />} Deposit now
+          </button>
+        </div>
+      )}
+      {cheque.state === 'PENDING_FUNDING' && !cheque.funderAddress && (
         <p className="mt-4 flex items-center gap-2 rounded-[10px] border border-gold-400/50 bg-gold-300/30 px-4 py-3 text-sm text-[#5c4300]">
           <Spinner /> Locking funds in escrow on Stellar. This usually takes a few seconds.
         </p>
@@ -469,14 +570,17 @@ function SharePanel({ cheque, id, onBack }: { cheque?: ChequeSummary; id: string
         <div className="card mt-5 space-y-4 p-6">
           <div>
             <h2 className="display ">Send it to {cheque.payeeName.split(' ')[0]}</h2>
-            <p className="mt-1 text-sm text-ink-soft">Share the claim link. Only the number or email on the cheque can unlock it.</p>
+            <p className="mt-1 text-sm text-ink-soft">Share the claim link. Whoever holds this link can claim the money, so send it only to them.</p>
           </div>
           {url ? (
             <>
               <div className="flex items-center gap-2 rounded-[10px] border border-ink/10 bg-paper px-3 py-2">
-                <code className="min-w-0 flex-1 truncate text-sm">{url}</code>
-                <button onClick={copy} className="btn-ghost !px-3 !py-2">{copied ? <Check className="h-4 w-4 text-brand-600" /> : <Copy className="h-4 w-4" />}</button>
+                <code className="min-w-0 flex-1 truncate text-sm" title={url}>{url}</code>
+                <button onClick={copy} className="btn-ghost !px-3 !py-2" aria-label={copied ? 'Link copied' : 'Copy claim link'} title="Copy link">
+                  {copied ? <Check className="h-4 w-4 text-brand-700" /> : <Copy className="h-4 w-4" />}
+                </button>
               </div>
+              {copyFailed && <p className="text-xs text-cedi">Could not copy automatically. Select the link above and copy it.</p>}
               <a href={wa} target="_blank" rel="noreferrer" className="btn-primary w-full">
                 <MessageCircle className="h-4 w-4" /> Send on WhatsApp
               </a>
