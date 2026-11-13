@@ -386,6 +386,87 @@ export class ChequeContractClient {
     });
   }
 
+  /**
+   * Builds, simulates and assembles an UNSIGNED create_cheque transaction whose source is the
+   * funder's own account, so a wallet only has to sign the envelope. The funder's USDC moves
+   * into escrow when that signed transaction is submitted (see submitSignedTransaction).
+   */
+  async prepareCreateCheque(params: {
+    funderPublicKey: string;
+    chequeIdHex: string;
+    refundTo: string;
+    amountStroops: bigint;
+    expiresAt: number;
+  }): Promise<{ xdr: string; networkPassphrase: string }> {
+    return this.prepareUnsigned(params.funderPublicKey, 'create_cheque', [
+      new Address(params.funderPublicKey).toScVal(),
+      xdr.ScVal.scvBytes(chequeIdHexToBytes(params.chequeIdHex)),
+      new Address(params.refundTo).toScVal(),
+      nativeToScVal(params.amountStroops, { type: 'i128' }),
+      nativeToScVal(params.expiresAt, { type: 'u64' }),
+    ]);
+  }
+
+  /** Unsigned cancel for the funder's wallet to sign (only the funder may cancel). */
+  async prepareCancel(funderPublicKey: string, chequeIdHex: string) {
+    return this.prepareUnsigned(funderPublicKey, 'cancel', [xdr.ScVal.scvBytes(chequeIdHexToBytes(chequeIdHex))]);
+  }
+
+  private async prepareUnsigned(
+    sourcePublicKey: string,
+    functionName: string,
+    args: xdr.ScVal[]
+  ): Promise<{ xdr: string; networkPassphrase: string }> {
+    const source = await this.rpcServer.getAccount(sourcePublicKey);
+    const op = Operation.invokeContractFunction({ contract: this.config.contractId, function: functionName, args });
+    const tx = new TransactionBuilder(source, {
+      fee: this.config.defaultFee!,
+      networkPassphrase: this.config.networkPassphrase,
+    })
+      .addOperation(op)
+      .setTimeout(300)
+      .build();
+    const sim = await this.rpcServer.simulateTransaction(tx);
+    if (rpc.Api.isSimulationError(sim)) throw parseContractError(new Error(sim.error));
+    if (rpc.Api.isSimulationRestore(sim)) {
+      throw new Error('Contract state needs restoring first; retry in a minute.');
+    }
+    const assembled = rpc.assembleTransaction(tx, sim).build();
+    return { xdr: assembled.toXDR(), networkPassphrase: this.config.networkPassphrase };
+  }
+
+  /** Submits an already-signed transaction XDR and waits for it to land. */
+  async submitSignedTransaction(
+    signedXdr: string,
+    expect: { source: string; functionName: string }
+  ): Promise<{ txHash: string; ledger: number }> {
+    const tx = TransactionBuilder.fromXDR(signedXdr, this.config.networkPassphrase);
+    // Only relay what we asked the wallet to sign: one call to OUR contract, from the funder.
+    const ok =
+      'operations' in tx &&
+      tx.operations.length === 1 &&
+      tx.operations[0].type === 'invokeHostFunction' &&
+      (tx as Transaction).source === expect.source &&
+      (() => {
+        try {
+          // stellar-sdk decodes the host function into plain objects (older builds returned XDR unions).
+          const fn = (tx.operations[0] as any).func.invokeContract;
+          const raw = fn.functionName;
+          const name = typeof raw === 'string' ? raw : Buffer.from(raw.bytes ?? raw).toString('utf8');
+          return Address.fromScAddress(fn.contractAddress).toString() === this.config.contractId && name === expect.functionName;
+        } catch {
+          return false;
+        }
+      })();
+    if (!ok) throw new Error('Signed transaction does not match the expected contract call.');
+    const send = await this.rpcServer.sendTransaction(tx as Transaction);
+    if (send.status === 'ERROR') {
+      throw parseContractError(new Error(`Soroban send error: ${send.errorResult?.toXDR('base64')}`));
+    }
+    const done = await this.pollTransaction(send.hash);
+    return { txHash: done.txHash, ledger: done.ledger };
+  }
+
   async lock(
     authoritySigner: KeySigner,
     params: {

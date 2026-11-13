@@ -1,14 +1,11 @@
 import { rpc, Horizon } from '@stellar/stellar-sdk';
 import { ChannelPool } from './channel-pool.js';
-import { ContractEventIndexer } from './indexer.js';
 
 export interface ChainHealthStatus {
   status: 'HEALTHY' | 'DEGRADED' | 'DOWN';
   rpcLatencyMs: number;
   horizonLatencyMs: number;
   latestLedger: number;
-  lastIndexedLedger: number;
-  indexerLagLedgers: number;
   channelPool: {
     total: number;
     available: number;
@@ -21,10 +18,9 @@ export async function checkChainHealth(params: {
   rpcServer: rpc.Server;
   horizonServer: Horizon.Server;
   channelPool?: ChannelPool;
-  indexer?: ContractEventIndexer;
   timeoutMs?: number;
 }): Promise<ChainHealthStatus> {
-  const { rpcServer, horizonServer, channelPool, indexer, timeoutMs = 4000 } = params;
+  const { rpcServer, horizonServer, channelPool, timeoutMs = 4000 } = params;
 
   let rpcLatencyMs = -1;
   let horizonLatencyMs = -1;
@@ -71,10 +67,6 @@ export async function checkChainHealth(params: {
       }))
     : { total: 0, available: 0, leased: 0 };
 
-  // 4. Indexer Progress
-  const lastIndexed = indexer?.getCursor() ?? latestLedger;
-  const lag = latestLedger > 0 && lastIndexed > 0 ? Math.max(0, latestLedger - lastIndexed) : 0;
-
   const isHealthy = isRpcOk && isHorizonOk && rpcLatencyMs < 2000;
   const isDown = !isRpcOk && !isHorizonOk;
 
@@ -83,8 +75,6 @@ export async function checkChainHealth(params: {
     rpcLatencyMs,
     horizonLatencyMs,
     latestLedger,
-    lastIndexedLedger: lastIndexed,
-    indexerLagLedgers: lag,
     channelPool: poolStats,
   };
 }

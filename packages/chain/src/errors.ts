@@ -16,6 +16,7 @@ export enum ContractErrorCode {
   InvalidLockDuration = 15,
   NoPendingAdmin = 16,
   InvalidExpiry = 17,
+  InvalidConfig = 18,
 }
 
 export const CONTRACT_ERROR_MESSAGES: Record<ContractErrorCode, string> = {
@@ -35,7 +36,8 @@ export const CONTRACT_ERROR_MESSAGES: Record<ContractErrorCode, string> = {
   [ContractErrorCode.ContractPaused]: 'Contract is paused by emergency admin',
   [ContractErrorCode.InvalidLockDuration]: 'Requested lock duration exceeds max_lock_secs or is zero',
   [ContractErrorCode.NoPendingAdmin]: 'No pending admin transfer to accept',
-  [ContractErrorCode.InvalidExpiry]: 'Cheque expiry timestamp must be in the future',
+  [ContractErrorCode.InvalidExpiry]: 'Cheque expiry must be in the future and at most 30 days away',
+  [ContractErrorCode.InvalidConfig]: 'Contract configuration is invalid',
 };
 
 export class ContractError extends Error {
