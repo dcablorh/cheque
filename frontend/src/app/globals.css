@@ -1,0 +1,62 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body {
+  background: #f3ede4;
+}
+
+body {
+  @apply bg-paper text-ink font-sans antialiased min-h-screen;
+}
+
+::selection {
+  background: #55dd4a;
+  color: #122315;
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-[10px] px-7 py-3.5 text-[13px] font-medium uppercase tracking-[.18em] transition
+      active:scale-[.98] disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none
+      focus-visible:ring-2 focus-visible:ring-night focus-visible:ring-offset-2 focus-visible:ring-offset-paper;
+  }
+  .btn-primary {
+    @apply btn bg-brand-500 text-night hover:bg-brand-600;
+  }
+  .btn-gold {
+    @apply btn-primary;
+  }
+  .btn-ghost {
+    @apply btn border border-night/70 bg-transparent text-night hover:bg-night/5;
+  }
+  .btn-danger {
+    @apply btn border border-cedi/50 bg-transparent text-cedi hover:bg-cedi/5;
+  }
+  .field {
+    @apply w-full rounded-[10px] border border-sage/60 bg-[#faf7f1] px-4 py-3.5 text-base text-ink
+      placeholder:text-moss transition focus:border-night focus:outline-none focus:ring-2 focus:ring-brand-500;
+  }
+  .label {
+    @apply mb-2 block text-[12px] font-medium uppercase tracking-[.18em] text-sage;
+  }
+  .card {
+    @apply rounded-[20px] border border-sage bg-[#faf7f1] shadow-card;
+  }
+  .eyebrow {
+    @apply text-[12px] font-medium uppercase tracking-[.22em];
+  }
+  .display {
+    @apply font-serif font-bold uppercase leading-[.85] tracking-[-.01em];
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-rise,
+  .animate-float,
+  .animate-stamp,
+  .animate-bob {
+    animation: none !important;
+  }
+}

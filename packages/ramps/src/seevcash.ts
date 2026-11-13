@@ -42,7 +42,7 @@ export class SeevCashAdapter implements SettlementAdapter {
       body: JSON.stringify({
         sell_asset: 'GHS',
         buy_asset: 'USDC',
-        sell_amount_minor: cheque.faceAmountGhsMinor,
+        sell_amount_minor: cheque.faceAmountMinor,
       }),
     });
 
@@ -63,7 +63,7 @@ export class SeevCashAdapter implements SettlementAdapter {
       quoteId: data.quote_id,
       fromAsset: 'GHS',
       toAsset: 'USDC',
-      fromAmountMinor: cheque.faceAmountGhsMinor,
+      fromAmountMinor: cheque.faceAmountMinor,
       toAmountMinor: data.buy_amount_stroops,
       rate: data.rate,
       expiresAt: new Date(data.expires_at),
@@ -71,7 +71,7 @@ export class SeevCashAdapter implements SettlementAdapter {
     };
   }
 
-  async fund(cheque: Cheque, method: FundingMethod): Promise<FundingRef> {
+  async fund(cheque: Cheque, method: FundingMethod, payer?: { phoneE164?: string }): Promise<FundingRef> {
     const url = `${this.config.baseUrl}/v1/deposits`;
     const response = await fetch(url, {
       method: 'POST',
@@ -82,8 +82,8 @@ export class SeevCashAdapter implements SettlementAdapter {
       body: JSON.stringify({
         cheque_id: cheque.id,
         method,
-        amount_minor: cheque.faceAmountGhsMinor + cheque.feeMinor,
-        sender_phone: cheque.payeePhoneE164, // sender's phone
+        amount_minor: cheque.faceAmountMinor + cheque.feeMinor,
+        sender_phone: payer?.phoneE164,
       }),
     });
 
@@ -134,7 +134,7 @@ export class SeevCashAdapter implements SettlementAdapter {
         network: destination.network,
         account_ref: destination.accountRef,
         account_name: destination.accountName,
-        amount_minor: cheque.faceAmountGhsMinor,
+        amount_minor: cheque.faceAmountMinor,
       }),
     });
 
@@ -191,7 +191,7 @@ export class SeevCashAdapter implements SettlementAdapter {
       },
       body: JSON.stringify({
         cheque_id: cheque.id,
-        amount_minor: cheque.faceAmountGhsMinor,
+        amount_minor: cheque.faceAmountMinor,
       }),
     });
 

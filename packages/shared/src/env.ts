@@ -49,6 +49,14 @@ export const EnvSchema = z.object({
   SETTLEMENT_ACCOUNT_PUBLIC: z.string().length(56).optional(),
   FEE_SOURCE_PUBLIC: z.string().length(56).optional(),
 
+  // Pricing (placeholders until the SEP-38 quote service feeds cheques)
+  FX_GHS_PER_USDC: z.string().regex(/^\d+(\.\d{1,6})?$/).default('15.500000'),
+  FX_NGN_PER_USDC: z.string().regex(/^\d+(\.\d{1,6})?$/).default('1550.000000'),
+  FX_USD_PER_USDC: z.string().regex(/^\d+(\.\d{1,6})?$/).default('1.000000'),
+  // Comma-separated corridor codes that accept new cheques (GH, NG, US).
+  ENABLED_CORRIDORS: z.string().default('GH,NG,US'),
+  FEE_BPS: z.coerce.number().int().min(0).max(1000).default(100),
+
   // SeevCash Sandbox & Webhook
   SEEV_CASH_BASE_URL: z.string().url().optional(),
   SEEV_CASH_API_KEY: z.string().optional(),
@@ -66,6 +74,11 @@ export const EnvSchema = z.object({
   SMS_API_KEY: z.string().optional(),
   SMS_API_SECRET: z.string().optional(),
   SMS_SENDER_ID: z.string().default('CHEQUE'),
+
+  // Transactional email (payee OTP + cheque-received notifications)
+  EMAIL_PROVIDER: z.enum(['RESEND']).default('RESEND'),
+  EMAIL_API_KEY: z.string().optional(),
+  EMAIL_FROM: z.string().default('Digital Cheque <no-reply@cheq.app>'),
 
   // Security & App
   JWT_SECRET: z.string().min(16).default('development_jwt_secret_must_be_changed_in_prod'),

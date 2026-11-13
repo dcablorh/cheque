@@ -68,7 +68,7 @@ export class Sep10Client {
     const anchorKeypair = Keypair.fromPublicKey(this.config.anchorSigningKey);
     const hasAnchorSig = tx.signatures.some((sig) => {
       try {
-        return anchorKeypair.verify(tx.hash(), sig.signature());
+        return anchorKeypair.verify(Buffer.from(tx.hash()), Buffer.from(sig.signature.value));
       } catch {
         return false;
       }
