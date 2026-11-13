@@ -5,6 +5,12 @@ import { isValidTransition, TransitionCheckContext } from './state-machine.js';
 import { validateLedgerTransaction } from './ledger.js';
 import { withTransaction } from './db.js';
 
+/** Maps a flat cheques row (aliased columns) into the domain `Cheque`, nesting the payee contact. */
+export function mapChequeRow(row: Record<string, any>): Cheque {
+  const { payeeContactType, payeeContactValue, ...rest } = row;
+  return { ...rest, payeeContact: { type: payeeContactType, value: payeeContactValue } } as Cheque;
+}
+
 export class StateTransitionError extends Error {
   constructor(message: string) {
     super(message);
@@ -99,8 +105,9 @@ export async function transition(
         claim_token_hash AS "claimTokenHash",
         sender_id AS "senderId",
         payee_name AS "payeeName",
-        payee_phone_e164 AS "payeePhoneE164",
-        face_amount_ghs_minor AS "faceAmountGhsMinor",
+        payee_contact_type AS "payeeContactType",
+        payee_contact AS "payeeContactValue",
+        face_amount_minor AS "faceAmountMinor",
         fee_minor AS "feeMinor",
         note,
         state,
@@ -130,7 +137,7 @@ export async function transition(
       );
     }
 
-    const updatedCheque = updateRes.rows[0] as Cheque;
+    const updatedCheque = mapChequeRow(updateRes.rows[0]);
 
     // 4. Record Audit Event in events table
     const auditEventId = crypto.randomUUID();

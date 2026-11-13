@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { LedgerTransaction, LedgerAccount } from './types.js';
+import { LedgerTransaction, LedgerAccount, LedgerCurrency } from './types.js';
 import { assertIntegerNonNegative } from './money.js';
 
 export const VALID_LEDGER_ACCOUNTS: readonly LedgerAccount[] = [
@@ -58,7 +58,7 @@ export function createFundingTransaction(params: {
   chequeId: string;
   faceAmountMinor: number;
   feeMinor: number;
-  currency: 'GHS' | 'USDC';
+  currency: LedgerCurrency;
 }): LedgerTransaction {
   const { chequeId, faceAmountMinor, feeMinor, currency } = params;
   assertIntegerNonNegative(faceAmountMinor, 'faceAmountMinor');
@@ -96,7 +96,7 @@ export function createFundingTransaction(params: {
 export function createSettlementPendingTransaction(params: {
   chequeId: string;
   amountMinor: number;
-  currency: 'GHS' | 'USDC';
+  currency: LedgerCurrency;
 }): LedgerTransaction {
   const { chequeId, amountMinor, currency } = params;
   assertIntegerNonNegative(amountMinor, 'amountMinor');
@@ -126,7 +126,7 @@ export function createSettlementPendingTransaction(params: {
 export function createSettlementConfirmedTransaction(params: {
   chequeId: string;
   amountMinor: number;
-  currency: 'GHS' | 'USDC';
+  currency: LedgerCurrency;
 }): LedgerTransaction {
   const { chequeId, amountMinor, currency } = params;
   assertIntegerNonNegative(amountMinor, 'amountMinor');
@@ -156,7 +156,7 @@ export function createSettlementConfirmedTransaction(params: {
 export function createSettlementFailedRollbackTransaction(params: {
   chequeId: string;
   amountMinor: number;
-  currency: 'GHS' | 'USDC';
+  currency: LedgerCurrency;
 }): LedgerTransaction {
   const { chequeId, amountMinor, currency } = params;
   assertIntegerNonNegative(amountMinor, 'amountMinor');
@@ -186,7 +186,7 @@ export function createSettlementFailedRollbackTransaction(params: {
 export function createRefundPendingTransaction(params: {
   chequeId: string;
   amountMinor: number;
-  currency: 'GHS' | 'USDC';
+  currency: LedgerCurrency;
 }): LedgerTransaction {
   const { chequeId, amountMinor, currency } = params;
   assertIntegerNonNegative(amountMinor, 'amountMinor');
@@ -216,7 +216,7 @@ export function createRefundPendingTransaction(params: {
 export function createRefundConfirmedTransaction(params: {
   chequeId: string;
   amountMinor: number;
-  currency: 'GHS' | 'USDC';
+  currency: LedgerCurrency;
 }): LedgerTransaction {
   const { chequeId, amountMinor, currency } = params;
   assertIntegerNonNegative(amountMinor, 'amountMinor');
@@ -246,7 +246,7 @@ export function createRefundConfirmedTransaction(params: {
 export function createFxBufferAdjustmentTransaction(params: {
   chequeId: string;
   shortfallMinor: number;
-  currency: 'GHS' | 'USDC';
+  currency: LedgerCurrency;
 }): LedgerTransaction {
   const { chequeId, shortfallMinor, currency } = params;
   assertIntegerNonNegative(shortfallMinor, 'shortfallMinor');

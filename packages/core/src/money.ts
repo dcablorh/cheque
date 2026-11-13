@@ -223,3 +223,37 @@ export function subMinor(a: number, b: number): number {
   }
   return a - b;
 }
+
+/**
+ * Converts fiat minor units to USDC stroops for any corridor currency.
+ * `fxRatePerUsd` is the amount of that currency per 1 USD (e.g. "1550.000000" for NGN).
+ */
+export function convertFiatMinorToStroops(
+  minor: Pesewas | number,
+  fxRatePerUsd: string | number,
+  roundingMode: RoundingMode = 'ROUND_HALF_UP'
+): Stroops {
+  return convertGhsToUsdcStroops(minor, fxRatePerUsd, roundingMode);
+}
+
+/** Inverse of convertFiatMinorToStroops. */
+export function convertStroopsToFiatMinor(
+  stroops: Stroops | bigint | number,
+  fxRatePerUsd: string | number,
+  roundingMode: RoundingMode = 'ROUND_HALF_UP'
+): number {
+  return convertUsdcStroopsToGhs(stroops, fxRatePerUsd, roundingMode);
+}
+
+/**
+ * Parses a decimal major-unit amount (number or string) into integer minor units.
+ * Two decimal places, like "1234.50" -> 123450.
+ */
+export function decimalToMinor(amount: string | number): number {
+  return ghsToPesewas(amount);
+}
+
+/** Formats integer minor units for display, e.g. (123450) -> "1234.50". */
+export function minorToDecimalString(minor: number): string {
+  return pesewasToGhsString(minor);
+}

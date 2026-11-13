@@ -1,4 +1,5 @@
 export * from './types.js';
+export * from './corridors.js';
 export * from './money.js';
 export * from './masking.js';
 export * from './token.js';

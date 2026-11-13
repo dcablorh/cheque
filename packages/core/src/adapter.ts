@@ -45,7 +45,7 @@ export class MockAdapter implements SettlementAdapter {
     const rateNum = parseFloat(this.options.mockRate ?? '15.5');
     // GHS pesewas to USDC stroops (1 GHS = 100 pesewas; 1 USDC = 10,000,000 stroops)
     // usdcAmount = (faceAmountGhs / rate)
-    const faceGhs = cheque.faceAmountGhsMinor / 100;
+    const faceGhs = cheque.faceAmountMinor / 100;
     const usdc = faceGhs / rateNum;
     const usdcStroops = Math.round(usdc * 10_000_000);
 
@@ -53,15 +53,15 @@ export class MockAdapter implements SettlementAdapter {
       quoteId: `mock-quote-${crypto.randomUUID()}`,
       fromAsset: 'GHS',
       toAsset: 'USDC',
-      fromAmountMinor: cheque.faceAmountGhsMinor,
+      fromAmountMinor: cheque.faceAmountMinor,
       toAmountMinor: usdcStroops,
       rate: this.options.mockRate ?? '15.500000',
       expiresAt: new Date(Date.now() + 15 * 60 * 1000), // 15 min quote
-      bufferMinor: Math.round(cheque.faceAmountGhsMinor * 0.02), // 2% FX buffer
+      bufferMinor: Math.round(cheque.faceAmountMinor * 0.02), // 2% FX buffer
     };
   }
 
-  async fund(cheque: Cheque, method: FundingMethod): Promise<FundingRef> {
+  async fund(cheque: Cheque, method: FundingMethod, _payer?: { phoneE164?: string }): Promise<FundingRef> {
     const providerRef = `mock-fund-${crypto.randomUUID()}`;
     if (method === 'MOMO') {
       return {
@@ -69,7 +69,7 @@ export class MockAdapter implements SettlementAdapter {
         status: 'PENDING',
         paymentInstructions: {
           momoPromptSent: true,
-          exactAmount: (cheque.faceAmountGhsMinor / 100).toFixed(2),
+          exactAmount: (cheque.faceAmountMinor / 100).toFixed(2),
         },
       };
     }

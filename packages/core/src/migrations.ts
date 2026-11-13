@@ -22,8 +22,9 @@ CREATE TABLE IF NOT EXISTS cheques (
   claim_token_hash VARCHAR(64) NOT NULL UNIQUE,
   sender_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
   payee_name VARCHAR(255) NOT NULL,
-  payee_phone_e164 VARCHAR(20) NOT NULL,
-  face_amount_ghs_minor BIGINT NOT NULL CHECK (face_amount_ghs_minor > 0),
+  payee_contact_type VARCHAR(10) NOT NULL CHECK (payee_contact_type IN ('PHONE', 'EMAIL')),
+  payee_contact VARCHAR(255) NOT NULL, -- E.164 phone or lowercase email
+  face_amount_minor BIGINT NOT NULL CHECK (face_amount_minor > 0),
   fee_minor BIGINT NOT NULL DEFAULT 0 CHECK (fee_minor >= 0),
   note VARCHAR(80),
   state VARCHAR(32) NOT NULL CHECK (
@@ -44,7 +45,7 @@ CREATE TABLE IF NOT EXISTS cheques (
 
 CREATE INDEX IF NOT EXISTS idx_cheques_state ON cheques(state);
 CREATE INDEX IF NOT EXISTS idx_cheques_sender_id ON cheques(sender_id);
-CREATE INDEX IF NOT EXISTS idx_cheques_payee_phone ON cheques(payee_phone_e164);
+CREATE INDEX IF NOT EXISTS idx_cheques_payee_contact ON cheques(payee_contact_type, payee_contact);
 
 -- 3. Fundings
 CREATE TABLE IF NOT EXISTS fundings (
@@ -316,6 +317,29 @@ FROM cheques c
 LEFT JOIN latest_chain_events lce
   ON replace(c.id::text, '-', '') = lce.cheque_id_hex
   OR lce.cheque_id_hex = encode(digest(c.id::text, 'sha256'), 'hex');
+
+-- 9. Multi-corridor upgrade (idempotent). Existing rows become Ghana/GHS cheques.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_name = 'cheques' AND column_name = 'face_amount_ghs_minor'
+  ) THEN
+    ALTER TABLE cheques RENAME COLUMN face_amount_ghs_minor TO face_amount_minor;
+  END IF;
+END $$;
+
+ALTER TABLE cheques ADD COLUMN IF NOT EXISTS corridor VARCHAR(2) NOT NULL DEFAULT 'GH';
+ALTER TABLE cheques DROP CONSTRAINT IF EXISTS cheques_corridor_check;
+ALTER TABLE cheques ADD CONSTRAINT cheques_corridor_check CHECK (corridor IN ('GH', 'NG', 'US'));
+
+ALTER TABLE cheques ADD COLUMN IF NOT EXISTS currency VARCHAR(3) NOT NULL DEFAULT 'GHS';
+ALTER TABLE cheques DROP CONSTRAINT IF EXISTS cheques_currency_check;
+ALTER TABLE cheques ADD CONSTRAINT cheques_currency_check CHECK (currency IN ('GHS', 'NGN', 'USD'));
+
+ALTER TABLE ledger_entries DROP CONSTRAINT IF EXISTS ledger_entries_currency_check;
+ALTER TABLE ledger_entries ADD CONSTRAINT ledger_entries_currency_check
+  CHECK (currency IN ('GHS', 'NGN', 'USD', 'USDC'));
 `;
 
 export async function runMigrations(clientOrPool: pg.Pool | pg.PoolClient): Promise<void> {

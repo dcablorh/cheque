@@ -201,9 +201,9 @@ describe('Real PostgreSQL Integration & Double-Entry Ledger Property Tests', () 
       await client.query(
         `
         INSERT INTO cheques (
-          id, public_code, claim_token_hash, sender_id, payee_name, payee_phone_e164,
-          face_amount_ghs_minor, fee_minor, state, expires_at, version
-        ) VALUES ($1, $2, $3, $4, 'Payee', '+233241112233', 50000, 500, 'DRAFT', NOW() + INTERVAL '1 day', 1);
+          id, public_code, claim_token_hash, sender_id, payee_name, payee_contact_type, payee_contact,
+          face_amount_minor, fee_minor, state, expires_at, version
+        ) VALUES ($1, $2, $3, $4, 'Payee', 'PHONE', '+233241112233', 50000, 500, 'DRAFT', NOW() + INTERVAL '1 day', 1);
         `,
         [testChequeId, publicCode, claimHash, testUserId]
       );
@@ -314,9 +314,9 @@ describe('Real PostgreSQL Integration & Double-Entry Ledger Property Tests', () 
       await client.query(
         `
         INSERT INTO cheques (
-          id, public_code, claim_token_hash, sender_id, payee_name, payee_phone_e164,
-          face_amount_ghs_minor, fee_minor, state, expires_at, version
-        ) VALUES ($1, $2, $3, $4, 'Payee', '+233241112233', 50000, 500, 'ACTIVE', NOW() + INTERVAL '1 day', 1);
+          id, public_code, claim_token_hash, sender_id, payee_name, payee_contact_type, payee_contact,
+          face_amount_minor, fee_minor, state, expires_at, version
+        ) VALUES ($1, $2, $3, $4, 'Payee', 'PHONE', '+233241112233', 50000, 500, 'ACTIVE', NOW() + INTERVAL '1 day', 1);
         `,
         [testChequeId, `CHQ-${crypto.randomBytes(3).toString('hex').toUpperCase()}`, crypto.randomBytes(32).toString('hex'), testUserId]
       );
@@ -396,9 +396,9 @@ describe('Real PostgreSQL Integration & Double-Entry Ledger Property Tests', () 
       await client.query(
         `
         INSERT INTO cheques (
-          id, public_code, claim_token_hash, sender_id, payee_name, payee_phone_e164,
-          face_amount_ghs_minor, fee_minor, state, expires_at, version
-        ) VALUES ($1, $2, $3, $4, 'Payee', '+233241112233', 50000, 500, 'AUTHORIZED', NOW() + INTERVAL '1 day', 1);
+          id, public_code, claim_token_hash, sender_id, payee_name, payee_contact_type, payee_contact,
+          face_amount_minor, fee_minor, state, expires_at, version
+        ) VALUES ($1, $2, $3, $4, 'Payee', 'PHONE', '+233241112233', 50000, 500, 'AUTHORIZED', NOW() + INTERVAL '1 day', 1);
         `,
         [testChequeId, `CHQ-${crypto.randomBytes(3).toString('hex').toUpperCase()}`, crypto.randomBytes(32).toString('hex'), testUserId]
       );
@@ -525,9 +525,9 @@ describe('Real PostgreSQL Integration & Double-Entry Ledger Property Tests', () 
       await client.query(
         `
         INSERT INTO cheques (
-          id, public_code, claim_token_hash, sender_id, payee_name, payee_phone_e164,
-          face_amount_ghs_minor, fee_minor, state, expires_at, version
-        ) VALUES ($1, $2, $3, $4, 'Payee', '+233241112233', 50000, 500, 'ACTIVE', NOW() + INTERVAL '1 day', 1);
+          id, public_code, claim_token_hash, sender_id, payee_name, payee_contact_type, payee_contact,
+          face_amount_minor, fee_minor, state, expires_at, version
+        ) VALUES ($1, $2, $3, $4, 'Payee', 'PHONE', '+233241112233', 50000, 500, 'ACTIVE', NOW() + INTERVAL '1 day', 1);
         `,
         [testChequeId, `CHQ-${crypto.randomBytes(3).toString('hex').toUpperCase()}`, crypto.randomBytes(32).toString('hex'), testUserId]
       );

@@ -1,3 +1,7 @@
+import type { CorridorCode, FiatCurrency } from './corridors.js';
+
+export type LedgerCurrency = FiatCurrency | 'USDC';
+
 export type ChequeState =
   | 'DRAFT'
   | 'PENDING_FUNDING'
@@ -33,6 +37,14 @@ export type LedgerAccount =
   | 'fx_buffer'
   | 'refunds_pending';
 
+export type PayeeContactType = 'PHONE' | 'EMAIL';
+
+/** How the payee is reached; `value` is E.164 for phones, lowercase for emails. */
+export interface PayeeContact {
+  type: PayeeContactType;
+  value: string;
+}
+
 export interface User {
   id: string;
   phoneE164: string;
@@ -48,9 +60,11 @@ export interface Cheque {
   claimTokenHash: string; // SHA-256 of the 128-bit secret URL token
   senderId: string;
   payeeName: string;
-  payeePhoneE164: string; // +233XXXXXXXXX
-  faceAmountGhsMinor: number; // Integer pesewas
-  feeMinor: number; // Integer pesewas
+  payeeContact: PayeeContact;
+  corridor: CorridorCode; // Where the cheque is issued and paid out (see corridors.ts)
+  currency: FiatCurrency; // Currency of faceAmountMinor and feeMinor
+  faceAmountMinor: number; // Integer minor units of `currency` (pesewas for GHS, kobo for NGN, cents for USD)
+  feeMinor: number; // Integer minor units of `currency`
   note?: string; // Max 80 chars
   state: ChequeState;
   expiresAt: Date;
@@ -131,7 +145,7 @@ export interface LedgerEntry {
   debitMinor: number; // integer minor units
   creditMinor: number; // integer minor units
   chequeId?: string;
-  currency: 'GHS' | 'USDC';
+  currency: LedgerCurrency;
   description?: string;
   createdAt: Date;
 }
@@ -139,7 +153,7 @@ export interface LedgerEntry {
 export interface LedgerTransaction {
   txId: string;
   chequeId?: string;
-  currency: 'GHS' | 'USDC';
+  currency: LedgerCurrency;
   description: string;
   entries: {
     account: LedgerAccount;
@@ -241,8 +255,8 @@ export interface AnchorTxRecord {
 // Settlement Adapter types
 export interface Quote {
   quoteId: string;
-  fromAsset: 'GHS' | 'USDC';
-  toAsset: 'GHS' | 'USDC';
+  fromAsset: LedgerCurrency;
+  toAsset: LedgerCurrency;
   fromAmountMinor: number;
   toAmountMinor: number;
   rate: string;
@@ -288,7 +302,8 @@ export interface AccountNameLookupResult {
 export interface SettlementAdapter {
   name: string;
   quote(cheque: Cheque): Promise<Quote>;
-  fund(cheque: Cheque, method: FundingMethod): Promise<FundingRef>;
+  /** `payer.phoneE164` is the SENDER's phone (MoMo prompt target); the payee contact is never used for funding. */
+  fund(cheque: Cheque, method: FundingMethod, payer?: { phoneE164?: string }): Promise<FundingRef>;
   settle(cheque: Cheque, destination: Destination, idempotencyKey: string): Promise<PayoutRef>;
   status(payoutRef: string): Promise<PayoutStatusResult>;
   refund(cheque: Cheque): Promise<RefundRef>;
