@@ -176,13 +176,13 @@ export default function Home() {
             Cross-border digital cheques. Send the link on WhatsApp, Telegram or Instagram. Your recipient needs no
             account and no app. They open it and decide where the money goes. Unclaimed cheques come straight back.
           </p>
-          <div className="mt-8 flex animate-rise flex-wrap items-center justify-center gap-3 [animation-delay:340ms]">
-            <Link href="/app" className="btn-primary px-9 py-4 focus-visible:ring-offset-night">
+          <div className="mx-auto mt-8 flex w-full max-w-xs animate-rise flex-col gap-3 [animation-delay:340ms] sm:max-w-none sm:flex-row sm:items-center sm:justify-center">
+            <Link href="/app" className="btn-primary w-full px-9 py-4 focus-visible:ring-offset-night sm:w-auto">
               Write a cheque <ArrowRight className="h-4 w-4" />
             </Link>
             <a
               href="#how"
-              className="btn border border-paper/60 px-9 py-4 text-paper hover:bg-paper/10 focus-visible:ring-offset-night"
+              className="btn w-full border border-paper/60 px-9 py-4 text-paper hover:bg-paper/10 focus-visible:ring-offset-night sm:w-auto"
             >
               How it works
             </a>
@@ -193,10 +193,10 @@ export default function Home() {
 
       {/* works with any messaging app */}
       <section aria-label="Works with" className="border-b border-sage/40 bg-paper">
-        <div className="mx-auto flex max-w-[1200px] flex-wrap items-center justify-center gap-x-8 gap-y-3 px-5 py-6">
-          <span className="eyebrow text-sage">Send it on</span>
+        <div className="mx-auto flex max-w-[1200px] flex-wrap items-center justify-center gap-x-5 gap-y-3 px-5 py-6 sm:gap-x-8">
+          <span className="eyebrow w-full text-center text-sage sm:w-auto">Send it on</span>
           {CHANNELS.map((c) => (
-            <span key={c} className="display text-[22px] text-night/70 !leading-none">
+            <span key={c} className="display text-[18px] text-night/70 !leading-none sm:text-[22px]">
               {c}
             </span>
           ))}

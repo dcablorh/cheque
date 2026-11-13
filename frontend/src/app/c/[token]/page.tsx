@@ -234,7 +234,7 @@ function Shell({ children }: { children: React.ReactNode }) {
       </div>
       <main className="mx-auto -mt-16 max-w-xl px-5 pb-16">
         {children}
-        <p className="eyebrow mt-8 text-center !text-[11px] text-sage">Secured by on-chain escrow on Stellar</p>
+        <p className="eyebrow mt-8 text-center !text-[10px] !tracking-[.14em] text-sage sm:!text-[11px] sm:!tracking-[.22em]">Secured by on-chain escrow on Stellar</p>
       </main>
     </div>
   );
