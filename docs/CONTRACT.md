@@ -41,7 +41,7 @@ Shared contract configuration and privileged roles:
     *   `max_lock_secs`: `u64` (default: 3600s / 1 hour)
     *   `delay_threshold`: `i128` (default: 50 USDC = 500,000,000 stroops)
     *   `delay_secs`: `u64` (default: 900s / 15 minutes)
-    *   `paused`: `bool` (when `true`, blocks `create_cheque` and `lock`; never blocks `cancel` or `refund`)
+    *   `paused`: `bool` (when `true`, blocks `create_cheque`, `lock` and `redeem`; never blocks `cancel` or `refund`, so funds can always exit)
 
 ### Persistent Storage (Per Cheque)
 Key: `DataKey::Cheque(BytesN<32>)`
@@ -66,6 +66,14 @@ The on-chain `BytesN<32>` id is `sha256(utf8(cheque_uuid))` (`deriveChequeIdHex`
 Soroban rejects WASM from `wasm32-unknown-unknown` on modern Rust (reference-types). Build with the `wasm32v1-none` target: `pnpm build:contract`, then `pnpm deploy:contract`.
 
 ---
+
+### Validation rules (hardening)
+- `Config` is validated at `init` and `set_config`: `min_amount > 0`, `max_amount >= min_amount`, `max_lock_secs > 0`, `delay_threshold >= 0`. Otherwise `InvalidConfig` (18).
+- `create_cheque` rejects `amount <= 0` (`AmountOutOfBounds`) and any `expires_at` that is not in the future or is more than 30 days away (`InvalidExpiry`). The 30-day cap stays below the 35-day TTL extension so an active cheque's storage can never archive.
+- Admin actions emit events: `authority`, `guardian`, `config`, `paused`, `unpaused`, `adm_prop`, `adm_acc`.
+
+### Who funds a cheque
+`create_cheque(funder, ...)` pulls USDC from `funder` and requires `funder`'s auth, so any Stellar account can fund. The web app has the sender's connected wallet sign a transaction whose source is that wallet; `refund_to` is the same wallet. Only the funder can `cancel` (also signed by the wallet). `lock` and `redeem` stay with the claim authority.
 
 ## 4. State Machine Diagram
 

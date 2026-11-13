@@ -7,6 +7,8 @@ use soroban_sdk::{
 const LEDGERS_PER_DAY: u32 = 17_280; // ~5 seconds per ledger on Stellar
 const TTL_THRESHOLD: u32 = LEDGERS_PER_DAY * 14; // 14 days
 const TTL_EXTEND_TO: u32 = LEDGERS_PER_DAY * 35; // 35 days
+/// Longest cheque life. Kept below TTL_EXTEND_TO so an active cheque's entry can never archive.
+const MAX_EXPIRY_SECS: u64 = 30 * 24 * 60 * 60;
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -29,6 +31,7 @@ pub enum Error {
     InvalidLockDuration = 15,
     NoPendingAdmin = 16,
     InvalidExpiry = 17,
+    InvalidConfig = 18,
 }
 
 #[contracttype]
@@ -86,6 +89,18 @@ pub enum DataKey {
     Lock(BytesN<32>),
 }
 
+/// Rejects configs that would brick the contract or make limits meaningless.
+fn validate_config(config: &Config) -> Result<(), Error> {
+    if config.min_amount <= 0
+        || config.max_amount < config.min_amount
+        || config.max_lock_secs == 0
+        || config.delay_threshold < 0
+    {
+        return Err(Error::InvalidConfig);
+    }
+    Ok(())
+}
+
 #[contract]
 pub struct ChequeContract;
 
@@ -103,6 +118,7 @@ impl ChequeContract {
             return Err(Error::AlreadyInitialized);
         }
         admin.require_auth();
+        validate_config(&config)?;
 
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage()
@@ -139,12 +155,12 @@ impl ChequeContract {
 
         funder.require_auth();
 
-        if amount < config.min_amount || amount > config.max_amount {
+        if amount <= 0 || amount < config.min_amount || amount > config.max_amount {
             return Err(Error::AmountOutOfBounds);
         }
 
         let now = env.ledger().timestamp();
-        if expires_at <= now {
+        if expires_at <= now || expires_at > now + MAX_EXPIRY_SECS {
             return Err(Error::InvalidExpiry);
         }
 
@@ -356,6 +372,16 @@ impl ChequeContract {
     }
 
     pub fn redeem(env: Env, cheque_id: BytesN<32>) -> Result<(), Error> {
+        // An incident pause must also stop payouts (cancel and refund stay open so funds can exit).
+        let config: Config = env
+            .storage()
+            .instance()
+            .get(&DataKey::Config)
+            .ok_or(Error::NotInitialized)?;
+        if config.paused {
+            return Err(Error::ContractPaused);
+        }
+
         let authority: Address = env
             .storage()
             .instance()
@@ -528,6 +554,7 @@ impl ChequeContract {
         env.storage()
             .instance()
             .set(&DataKey::Authority, &new_authority);
+        env.events().publish((symbol_short!("authority"),), new_authority);
         Ok(())
     }
 
@@ -542,6 +569,7 @@ impl ChequeContract {
         env.storage()
             .instance()
             .set(&DataKey::Guardian, &new_guardian);
+        env.events().publish((symbol_short!("guardian"),), new_guardian);
         Ok(())
     }
 
@@ -552,8 +580,10 @@ impl ChequeContract {
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
+        validate_config(&new_config)?;
 
         env.storage().instance().set(&DataKey::Config, &new_config);
+        env.events().publish((symbol_short!("config"),), new_config.paused);
         Ok(())
     }
 
@@ -572,6 +602,7 @@ impl ChequeContract {
             .ok_or(Error::NotInitialized)?;
         config.paused = true;
         env.storage().instance().set(&DataKey::Config, &config);
+        env.events().publish((symbol_short!("paused"),), ());
         Ok(())
     }
 
@@ -590,6 +621,7 @@ impl ChequeContract {
             .ok_or(Error::NotInitialized)?;
         config.paused = false;
         env.storage().instance().set(&DataKey::Config, &config);
+        env.events().publish((symbol_short!("unpaused"),), ());
         Ok(())
     }
 
@@ -604,6 +636,7 @@ impl ChequeContract {
         env.storage()
             .instance()
             .set(&DataKey::PendingAdmin, &new_admin);
+        env.events().publish((symbol_short!("adm_prop"),), new_admin);
         Ok(())
     }
 
@@ -617,6 +650,7 @@ impl ChequeContract {
 
         env.storage().instance().set(&DataKey::Admin, &pending);
         env.storage().instance().remove(&DataKey::PendingAdmin);
+        env.events().publish((symbol_short!("adm_acc"),), pending);
         Ok(())
     }
 
