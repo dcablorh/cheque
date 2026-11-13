@@ -230,13 +230,16 @@ function Dashboard({ onSignOut }: { onSignOut: () => void }) {
   const shared = typeof view === 'object' ? cheques?.find((c) => c.id === view.shared) : undefined;
 
   return (
-    <main className="mx-auto max-w-4xl px-5 pb-20 pt-6">
-      <header className="flex items-center justify-between">
-        <Link href="/"><Logo /></Link>
-        <div className="flex items-center gap-2">
+    <main className="mx-auto max-w-4xl px-4 pb-20 pt-5 sm:px-5 sm:pt-6">
+      <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
+        <Link href="/" className="shrink-0"><Logo /></Link>
+        <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
           <WalletButton />
-          <span className="hidden text-sm text-ink-soft sm:block">{s?.name ?? s?.phone}</span>
-          <button className="btn-ghost !px-3" onClick={onSignOut} aria-label="Sign out" title="Sign out"><LogOut className="h-4 w-4" /></button>
+          <span className="hidden max-w-[12rem] truncate text-sm text-ink-soft md:block">{s?.name ?? s?.phone}</span>
+          <button className="btn-ghost !px-3 !py-2.5" onClick={onSignOut} aria-label="Sign out" title="Sign out">
+            <LogOut className="h-4 w-4" />
+            <span className="hidden sm:inline">Sign out</span>
+          </button>
         </div>
       </header>
 
@@ -256,12 +259,12 @@ function Dashboard({ onSignOut }: { onSignOut: () => void }) {
 
       {view === 'list' && (
         <>
-          <div className="mt-10 flex items-end justify-between">
+          <div className="mt-8 flex flex-col gap-4 sm:mt-10 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <h1 className="display ">Your cheques</h1>
               <p className="mt-1 text-sm text-ink-soft">Everything you have sent, and where it stands.</p>
             </div>
-            <button className="btn-primary" onClick={() => setView('new')} disabled={!!config && !config.chainEnabled}>
+            <button className="btn-primary w-full sm:w-auto" onClick={() => setView('new')} disabled={!!config && !config.chainEnabled}>
               <Plus className="h-4 w-4" /> New cheque
             </button>
           </div>
@@ -370,7 +373,8 @@ function NewCheque({ config, onCancel, onCreated }: { config: AppConfig; onCance
     }
   }
 
-  const input = '!px-3 !py-2.5 !text-sm';
+  // 16px on phones so iOS does not zoom when a field is focused; 14px from sm up.
+  const input = '!px-3 !py-2.5 !text-base sm:!text-sm';
   return (
     <form onSubmit={submit} className="mt-6 animate-rise space-y-5">
       <div>
@@ -426,7 +430,7 @@ function NewCheque({ config, onCancel, onCreated }: { config: AppConfig; onCance
           <div className="flex gap-2">
             {EXPIRIES.map((x) => (
               <button type="button" key={x.h} onClick={() => setHours(x.h)} aria-pressed={hours === x.h}
-                className={`flex-1 rounded-[10px] border px-3 py-2 text-xs font-semibold transition ${hours === x.h ? 'border-night bg-night text-paper' : 'border-ink/15 bg-white text-ink-soft hover:border-ink/30'}`}>
+                className={`min-h-[40px] flex-1 rounded-[10px] border px-3 py-2 text-xs font-semibold transition ${hours === x.h ? 'border-night bg-night text-paper' : 'border-ink/15 bg-white text-ink-soft hover:border-ink/30'}`}>
                 {x.label}
               </button>
             ))}
