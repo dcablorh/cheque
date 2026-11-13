@@ -1,3 +1,5 @@
+import { DEMO, DEMO_SESSION, demoRequest } from './demo';
+
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
 export class ApiError extends Error {
@@ -19,6 +21,7 @@ interface Session {
 
 export const session = {
   get(): Session | null {
+    if (DEMO) return JSON.parse(localStorage.getItem(KEY) ?? JSON.stringify(DEMO_SESSION));
     try {
       return JSON.parse(localStorage.getItem(KEY) ?? 'null');
     } catch {
@@ -34,6 +37,14 @@ export const session = {
 };
 
 async function request<T>(path: string, init: RequestInit = {}, token?: string): Promise<T> {
+  if (DEMO) {
+    try {
+      return demoRequest(path, init) as T;
+    } catch (e) {
+      const err = e as { message: string; status?: number };
+      throw new ApiError(err.message, err.status ?? 500);
+    }
+  }
   let res: Response;
   try {
     res = await fetch(`${API_URL}${path}`, {
@@ -90,11 +101,12 @@ export interface ChequeSummary {
   publicCode: string;
   state: string;
   payeeName: string;
-  payeeContact: { type: 'PHONE' | 'EMAIL'; value: string };
   corridor?: string;
   amount: string;
   currency: string;
   note: string | null;
+  signature?: string | null;
+  funderAddress?: string | null;
   expiresAt: string;
   createdAt: string;
 }
@@ -107,11 +119,17 @@ export interface CorridorConfig {
   maxAmount: number;
   dialCode: string;
   payoutMethods: string[];
+  /** Units of this currency per 1 USDC. */
+  perUsdc: string;
 }
 
 export interface AppConfig {
   network: string;
   chainEnabled: boolean;
+  walletFunding?: boolean;
+  usdc?: { code: string; issuer: string };
+  horizonUrl?: string;
+  networkPassphrase?: string;
   feeBps: number;
   corridors: CorridorConfig[];
 }
@@ -121,6 +139,24 @@ export interface AppConfig {
 export function fmtMoney(v: string | number, currency: string = 'GHS') {
   const locale = { GHS: 'en-GH', NGN: 'en-NG', USD: 'en-US' }[currency] ?? 'en-US';
   return new Intl.NumberFormat(locale, { style: 'currency', currency, minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(v));
+}
+
+/** Short, human date for cheques and receipts, e.g. "13 Nov 2026". */
+export function fmtDate(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+/** Keeps digits and at most one decimal point with two decimals, so typing never produces NaN. */
+export function sanitizeAmount(raw: string): string {
+  const cleaned = raw.replace(/[^\d.]/g, '');
+  const [whole, ...rest] = cleaned.split('.');
+  if (rest.length === 0) return whole;
+  return `${whole}.${rest.join('').slice(0, 2)}`;
+}
+
+/** A Stellar public key: G followed by 55 base32 characters. */
+export function isStellarAddress(v: string): boolean {
+  return /^G[A-Z2-7]{55}$/.test(v.trim());
 }
 
 export function timeLeft(iso: string): string {
@@ -146,3 +182,14 @@ export const STATE_LABEL: Record<string, { label: string; tone: 'green' | 'amber
   REFUNDED: { label: 'Refunded', tone: 'gray' },
   REFUND_REVIEW: { label: 'Under review', tone: 'red' },
 };
+
+/** Local currency -> USDC at the platform rate (rounded to 2 dp for display). */
+export function toUsdc(local: number, perUsdc: string | number): number {
+  const r = Number(perUsdc);
+  return r > 0 ? Math.round((local / r) * 100) / 100 : 0;
+}
+
+/** USDC -> local currency at the platform rate. */
+export function fromUsdc(usdc: number, perUsdc: string | number): number {
+  return Math.round(usdc * Number(perUsdc) * 100) / 100;
+}

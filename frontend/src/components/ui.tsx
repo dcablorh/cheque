@@ -1,16 +1,18 @@
+import { ScaleToFit } from './ScaleToFit';
 import { Loader2 } from 'lucide-react';
 import { STATE_LABEL } from '@/lib/api';
-import { amountInWords, currencyWords } from '@/lib/words';
+import { amountInWords } from '@/lib/words';
 
+/** The sencheq wordmark (artwork in public/brand). Dark ink on light, light ink on dark. */
 export function Logo({ className = '', tone = 'dark' }: { className?: string; tone?: 'dark' | 'light' }) {
   return (
-    <span
-      className={`font-serif text-[30px] font-bold lowercase leading-none tracking-[-.02em] ${
-        tone === 'light' ? 'text-paper' : 'text-night'
-      } ${className}`}
-    >
-      cheque<span className="text-brand-500">.</span>
-    </span>
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={tone === 'light' ? '/brand/sencheq-logo-light.png' : '/brand/sencheq-logo.png'}
+      alt="sencheq"
+      className={`h-8 w-auto select-none ${className}`}
+      draggable={false}
+    />
   );
 }
 
@@ -167,6 +169,10 @@ export function ChequePaper(props: {
   amountValue?: string | number;
   payee: string;
   from?: string | null;
+  /** Drawn signature (PNG data URL); falls back to the sender's name in script type. */
+  signature?: string | null;
+  /** Replaces the signature area, e.g. with an editable signature pad. */
+  signSlot?: React.ReactNode;
   note?: string | null;
   code: string;
   stamp?: string;
@@ -178,15 +184,12 @@ export function ChequePaper(props: {
   footer?: React.ReactNode;
 }) {
   const currency = props.currency ?? 'GHS';
-  const words = props.amountValue !== undefined ? amountInWords(props.amountValue) : '';
+  const words = props.amountValue !== undefined && Number(props.amountValue) > 0 ? amountInWords(props.amountValue, currency) : '';
   const micrCode = props.code.replace(/[^A-Z0-9]/gi, '');
   const micrAmount =
     props.amountValue !== undefined ? Math.round(Number(props.amountValue) * 100).toString().padStart(10, '0') : '0000000000';
-  const size = props.compact
-    ? { payee: 'text-[clamp(22px,6vw,28px)]', amount: 'text-[clamp(20px,5.5vw,26px)]' }
-    : { payee: 'text-[clamp(26px,7vw,40px)]', amount: 'text-[clamp(24px,6.5vw,38px)]' };
-
   return (
+    <ScaleToFit width={720}>
     <div className="relative overflow-hidden rounded-[10px] border border-night/40 bg-[#f4efe0] text-night shadow-cheque">
       {/* guilloche security pattern */}
       <svg aria-hidden className="pointer-events-none absolute inset-0 h-full w-full opacity-[.16]">
@@ -201,17 +204,17 @@ export function ChequePaper(props: {
       {/* inner security border */}
       <div aria-hidden className="pointer-events-none absolute inset-1.5 rounded-[6px] border border-night/20" />
 
-      <div className="relative px-4 pb-3 pt-4 sm:px-7 sm:pt-6">
+      <div className="relative px-7 pb-3 pt-6">
         {/* issuer, number, date */}
         <div className="flex items-start justify-between gap-x-4">
           <div className="min-w-0">
-            <Logo className="!text-[24px] sm:!text-[28px]" />
+            <Logo className="!text-[28px]" />
             <p className="mt-1 text-[10px] font-medium uppercase tracking-[.2em] text-night/60">
-              Cross-border cheque<span className="hidden sm:inline"> · Settled on Stellar</span>
+              Cross-border cheque<span> · Settled on Stellar</span>
             </p>
           </div>
           <div className="shrink-0 text-right">
-            <p className="font-mono text-[11px] font-semibold tracking-[.12em] text-night/80 sm:text-xs">No. {props.code}</p>
+            <p className="font-mono text-xs font-semibold tracking-[.12em] text-night/80">No. {props.code}</p>
             <div className="mt-2 flex items-end justify-end gap-2">
               <span className="text-[10px] font-medium uppercase tracking-[.2em] text-night/60">Date</span>
               <span className="min-w-[6.5rem] border-b border-night/70 pb-px text-center text-sm font-medium">
@@ -222,50 +225,56 @@ export function ChequePaper(props: {
         </div>
 
         {/* payee + amount box */}
-        <div className="mt-5 flex flex-wrap items-end gap-x-5 gap-y-3 sm:mt-7">
-          <div className="min-w-[12rem] flex-1">
+        <div className="mt-6 flex items-end gap-x-5">
+          <div className="min-w-0 flex-1">
             <p className="text-[10px] font-medium uppercase leading-tight tracking-[.2em] text-night/60">
               Pay to the
               <br />
               order of
             </p>
-            <p className={`display mt-1 truncate border-b border-night/70 pb-1 ${size.payee} !normal-case !leading-[1.05]`}>
+            <p className={`display mt-1 truncate border-b border-night/70 pb-1 text-[40px] !normal-case !leading-[1.05]`}>
               {props.payee}
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
             <span className="text-[13px] font-bold">{currency}</span>
             <div className="rounded-[4px] border-2 border-night bg-white/70 px-3 py-1.5">
-              <p className={`display ${size.amount} !leading-none tabular-nums`}>{props.amount}</p>
+              <p className={`display text-[38px] !leading-none tabular-nums`}>{props.amount}</p>
             </div>
           </div>
         </div>
 
         {/* amount in words */}
         <div className="mt-3 flex items-end gap-3">
-          <p className="min-w-0 flex-1 truncate border-b border-night/70 pb-1 text-[13px] italic sm:text-sm">
+          <p className="min-w-0 flex-1 truncate border-b border-night/70 pb-1 text-sm italic">
             {words || ' '}
           </p>
-          <span className="shrink-0 pb-1 text-[10px] font-medium uppercase tracking-[.18em] text-night/70">
-            {currencyWords(currency)}
-          </span>
         </div>
 
         {/* memo + signature */}
-        <div className="mt-6 flex flex-wrap items-end justify-between gap-x-6 gap-y-4 sm:mt-8">
+        <div className="mt-6 flex items-end justify-between gap-x-6">
           <div className="min-w-[7rem] flex-1">
             <div className="flex items-end gap-2">
               <span className="text-[10px] font-medium uppercase tracking-[.2em] text-night/60">Memo</span>
               <span className="min-w-0 flex-1 truncate border-b border-night/70 pb-px text-sm">{props.note ?? ' '}</span>
             </div>
           </div>
-          <div className="w-[10.5rem] shrink-0 sm:w-60">
-            <p
-              className="truncate border-b border-night/70 pb-0.5 text-center text-[22px] leading-none sm:text-[26px]"
-              style={{ fontFamily: '"Snell Roundhand", "Segoe Script", "Brush Script MT", cursive' }}
-            >
-              {props.from ?? ' '}
-            </p>
+          <div className="w-60 shrink-0">
+            <div className="border-b border-night/70 pb-0.5">
+              {props.signSlot ? (
+                props.signSlot
+              ) : props.signature ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={props.signature} alt="Sender's signature" className="mx-auto h-[52px] object-contain" />
+              ) : (
+                <p
+                  className="truncate text-center text-[26px] leading-[52px]"
+                  style={{ fontFamily: '"Snell Roundhand", "Segoe Script", "Brush Script MT", cursive' }}
+                >
+                  {props.from ?? ' '}
+                </p>
+              )}
+            </div>
             <p className="mt-1 text-center text-[10px] font-medium uppercase tracking-[.2em] text-night/60">
               Authorised signature
             </p>
@@ -274,20 +283,21 @@ export function ChequePaper(props: {
       </div>
 
       {/* MICR line */}
-      <div className="relative overflow-hidden whitespace-nowrap px-4 pb-3 pt-1 font-mono text-[11px] tracking-[.22em] text-night/80 sm:px-7 sm:text-[14px] sm:tracking-[.3em]">
+      <div className="relative overflow-hidden whitespace-nowrap px-7 pb-3 pt-1 font-mono text-[14px] tracking-[.3em] text-night/80">
         ⑈ {micrCode} ⑈ &nbsp;⑆ {currency} ⑆ &nbsp;{micrAmount} ⑈
       </div>
 
-      {props.footer && <div className="relative border-t border-night/15 bg-paper px-4 py-4 sm:px-7">{props.footer}</div>}
+      {props.footer && <div className="relative border-t border-night/15 bg-paper px-7 py-4">{props.footer}</div>}
 
       {props.stamp && (
         <div
           aria-hidden
-          className="pointer-events-none absolute bottom-14 right-3 -rotate-6 sm:bottom-auto sm:left-[38%] sm:right-auto sm:top-[46%] animate-stamp rounded-[4px] border-[3px] border-brand-700 px-4 py-1 text-brand-700 [mix-blend-mode:multiply]"
+          className="pointer-events-none absolute left-[38%] top-[46%] -rotate-6 animate-stamp rounded-[4px] border-[3px] border-brand-700 px-4 py-1 text-brand-700 [mix-blend-mode:multiply]"
         >
-          <span className="display text-2xl sm:text-3xl">{props.stamp}</span>
+          <span className="display text-3xl">{props.stamp}</span>
         </div>
       )}
     </div>
+    </ScaleToFit>
   );
 }
