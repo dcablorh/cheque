@@ -400,3 +400,84 @@ fn test_fuzz_state_machine_invariant() {
     assert_eq!(expected_escrow, remaining_sum);
     assert_eq!(token_client.balance(&contract_id), remaining_sum);
 }
+
+#[test]
+fn test_config_validation() {
+    let (env, admin, authority, guardian, token_addr, _, _, _, client) = setup_test();
+
+    let bad = Config {
+        min_amount: 0,
+        max_amount: 10,
+        max_lock_secs: 3600,
+        delay_threshold: 0,
+        delay_secs: 0,
+        paused: false,
+    };
+    assert_eq!(client.try_set_config(&bad), Err(Ok(Error::InvalidConfig)));
+
+    let inverted = Config { min_amount: 100, max_amount: 10, ..bad.clone() };
+    assert_eq!(client.try_set_config(&inverted), Err(Ok(Error::InvalidConfig)));
+
+    let no_lock = Config { min_amount: 1, max_lock_secs: 0, ..bad.clone() };
+    assert_eq!(client.try_set_config(&no_lock), Err(Ok(Error::InvalidConfig)));
+
+    // A fresh contract rejects a bad config at init, too.
+    let id2 = env.register(ChequeContract, ());
+    let c2 = ChequeContractClient::new(&env, &id2);
+    assert_eq!(
+        c2.try_init(&admin, &authority, &guardian, &token_addr, &bad),
+        Err(Ok(Error::InvalidConfig))
+    );
+}
+
+#[test]
+fn test_expiry_is_capped_and_zero_amount_rejected() {
+    let (env, _, _, _, _, _, token_admin_client, _, client) = setup_test();
+    let funder = Address::generate(&env);
+    let refund_to = Address::generate(&env);
+    token_admin_client.mint(&funder, &100_000_000);
+    let now = env.ledger().timestamp();
+
+    let too_far = BytesN::from_array(&env, &[30u8; 32]);
+    let far = now + MAX_EXPIRY_SECS + 1;
+    assert_eq!(
+        client.try_create_cheque(&funder, &too_far, &refund_to, &20_000_000, &far),
+        Err(Ok(Error::InvalidExpiry))
+    );
+
+    let zero = BytesN::from_array(&env, &[31u8; 32]);
+    assert_eq!(
+        client.try_create_cheque(&funder, &zero, &refund_to, &0, &(now + 86400)),
+        Err(Ok(Error::AmountOutOfBounds))
+    );
+    let negative = BytesN::from_array(&env, &[32u8; 32]);
+    assert_eq!(
+        client.try_create_cheque(&funder, &negative, &refund_to, &-5, &(now + 86400)),
+        Err(Ok(Error::AmountOutOfBounds))
+    );
+
+    // Exactly the cap is fine.
+    let ok = BytesN::from_array(&env, &[33u8; 32]);
+    client.create_cheque(&funder, &ok, &refund_to, &20_000_000, &(now + MAX_EXPIRY_SECS));
+}
+
+#[test]
+fn test_pause_blocks_redeem_but_not_exit() {
+    let (env, _, _, _, _, token_client, token_admin_client, _, client) = setup_test();
+    let funder = Address::generate(&env);
+    let refund_to = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let amount = 20_000_000i128;
+    token_admin_client.mint(&funder, &amount);
+
+    let id = BytesN::from_array(&env, &[40u8; 32]);
+    client.create_cheque(&funder, &id, &refund_to, &amount, &(env.ledger().timestamp() + 86400));
+    client.lock(&id, &recipient, &600);
+
+    client.pause();
+    assert_eq!(client.try_redeem(&id), Err(Ok(Error::ContractPaused)));
+
+    client.unpause();
+    client.redeem(&id);
+    assert_eq!(token_client.balance(&recipient), amount);
+}

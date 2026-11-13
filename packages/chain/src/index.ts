@@ -5,7 +5,6 @@ export * from './contract-types.js';
 export * from './client.js';
 export * from './channel-pool.js';
 export * from './idempotency.js';
-export * from './indexer.js';
 export * from './health.js';
 export * from './bindings/index.js';
 export * from './cheque-id.js';

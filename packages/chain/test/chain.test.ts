@@ -6,7 +6,6 @@ import {
   CONTRACT_ERROR_MESSAGES,
   ChannelPool,
   SubmissionIdempotencyStore,
-  ContractEventIndexer,
   checkChainHealth,
   EnvKeypairSigner,
   KmsSigner,
@@ -209,61 +208,6 @@ describe('Submission Idempotency Store', () => {
     const expiredRes = await store.resolveSubmission(expiredChequeId, 'create', expiredRpc, 'Test');
     expect(expiredRes.shouldRebuild).toBe(true);
     expect(expiredRes.status).toBe('EXPIRED');
-  });
-});
-
-describe('Event Indexer Idempotency, Decoding & Rebuild', () => {
-  it('indexer decodes events, upserts by unique id, emits domain events, and rebuilds identically', async () => {
-    const contractId = 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC';
-    const indexer1 = new ContractEventIndexer({
-      contractId,
-      rpcUrl: 'https://soroban-testnet.stellar.org',
-      horizonUrl: 'https://horizon-testnet.stellar.org',
-      startLedger: 5000000,
-    });
-
-    const emittedEvents: string[] = [];
-    indexer1.on('event', (e) => emittedEvents.push(`event:${e.topic}`));
-    indexer1.on('cheque:created', (e) => emittedEvents.push(`cheque:created:${e.chequeIdHex}`));
-
-    // Simulate raw event response from Soroban RPC with real ScVal XDR
-    const symbolXdr = (await import('@stellar/stellar-sdk')).xdr.ScVal.scvSymbol('created').toXDR('base64');
-    const chequeIdBytes = Buffer.alloc(32, 7);
-    const bytesXdr = (await import('@stellar/stellar-sdk')).xdr.ScVal.scvBytes(chequeIdBytes).toXDR('base64');
-
-    const rawEvent = {
-      type: 'contract' as const,
-      ledger: 5000010,
-      ledgerClosedAt: '2026-10-04T10:00:00Z',
-      contractId,
-      id: '000001',
-      pagingToken: 'token1',
-      inSuccessfulContractCall: true,
-      txHash: 'tx12345678',
-      topic: [symbolXdr, bytesXdr],
-      value: symbolXdr,
-    };
-
-    const record = indexer1.decodeAndUpsertEvent(rawEvent as any, 0);
-    expect(record).toBeDefined();
-    expect(record?.topic).toBe('created');
-    expect(record?.chequeIdHex).toBe(chequeIdBytes.toString('hex'));
-    expect(record?.id).toBe('tx12345678:0');
-    expect(indexer1.chainEvents.size).toBe(1);
-
-    // Rebuild indexer 2 from zero
-    const indexer2 = new ContractEventIndexer({
-      contractId,
-      rpcUrl: 'https://soroban-testnet.stellar.org',
-      horizonUrl: 'https://horizon-testnet.stellar.org',
-      startLedger: 5000000,
-    });
-
-    indexer2.decodeAndUpsertEvent(rawEvent as any, 0);
-
-    // Assert identical reproduced state
-    expect(indexer2.chainEvents.size).toBe(indexer1.chainEvents.size);
-    expect(indexer2.chainEvents.get('tx12345678:0')).toEqual(indexer1.chainEvents.get('tx12345678:0'));
   });
 });
 

@@ -10,5 +10,4 @@ export * from './schemas.js';
 export * from './db.js';
 export * from './migrations.js';
 export * from './transition.js';
-export * from './reconciliation.js';
 export * from './outbox.js';

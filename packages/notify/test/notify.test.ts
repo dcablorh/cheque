@@ -457,7 +457,7 @@ describe('SMS Provider Client & Delivery Receipts', () => {
   });
 });
 
-describe('Sender Auth Service (JWT, Refresh Tokens & PIN)', () => {
+describe('Sender Auth Service (JWT & Refresh Tokens)', () => {
   let authService: SenderAuthService;
   let otpService: PhoneOtpService;
 
@@ -546,17 +546,5 @@ describe('Sender Auth Service (JWT, Refresh Tokens & PIN)', () => {
 
     const tamperedToken = `${header}.${tamperedPayload}.${signature}`;
     expect(() => authService.verifyAccessToken(tamperedToken)).toThrow('Invalid JWT signature');
-  });
-
-  it('validates PIN requirements (4-6 digits)', async () => {
-    await expect(authService.setPin('user-1', '12')).rejects.toThrow(
-      'PIN must be 4 to 6 numeric digits'
-    );
-    await expect(authService.setPin('user-1', 'abcd')).rejects.toThrow(
-      'PIN must be 4 to 6 numeric digits'
-    );
-    await expect(authService.setPin('user-1', '1234567')).rejects.toThrow(
-      'PIN must be 4 to 6 numeric digits'
-    );
   });
 });

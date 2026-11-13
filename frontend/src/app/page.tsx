@@ -14,21 +14,13 @@ import {
 } from 'lucide-react';
 import { ChequePaper, CorridorMap, Logo, Patch } from '@/components/ui';
 
-const NAV = [
-  { href: '#how', label: 'How it works' },
-  { href: '#countries', label: 'Countries' },
-  { href: '#escrow', label: 'Escrow' },
-  { href: '#pricing', label: 'Pricing' },
-  { href: '#faq', label: 'FAQ' },
-];
-
 const CHANNELS = ['WhatsApp', 'Telegram', 'Instagram', 'Messenger', 'iMessage', 'SMS', 'Email'];
 
 const STEPS = [
   {
     n: '01',
     title: 'Write the cheque',
-    body: 'A name, a phone number or email, an amount. Pick the country they live in and we show the exact amount in their currency.',
+    body: 'The recipient’s name and an amount. Pick the country they live in and we show the exact amount in their currency.',
   },
   {
     n: '02',
@@ -37,8 +29,8 @@ const STEPS = [
   },
   {
     n: '03',
-    title: 'They verify',
-    body: 'The recipient opens the link and confirms a one-time code sent only to the contact you wrote on the cheque.',
+    title: 'They open it',
+    body: 'Whoever holds the link can claim the cheque. They see the amount and choose where the money goes.',
   },
   {
     n: '04',
@@ -86,12 +78,12 @@ const FEATURES = [
   {
     icon: Smartphone,
     title: 'No app, no account',
-    body: 'Your recipient needs a phone number or email and a minute. That is the whole signup.',
+    body: 'Your recipient needs the link and a minute. There is nothing to sign up for.',
   },
   {
     icon: ShieldCheck,
-    title: 'Verified before paid',
-    body: 'A one-time code goes only to the contact on the cheque, so a forwarded link alone cannot cash it.',
+    title: 'The link is the key',
+    body: 'Each link is a long random secret that cannot be guessed. Send it only to the person it is for.',
   },
   {
     icon: Lock,
@@ -113,7 +105,7 @@ const FEATURES = [
 const FAQ = [
   {
     q: 'Does my recipient need an account or an app?',
-    a: 'No. They open the link, confirm a one-time code, and choose where the money goes. That is all.',
+    a: 'No. They open the link and choose where the money goes. That is all.',
   },
   {
     q: 'Which countries can I send to?',
@@ -125,7 +117,7 @@ const FAQ = [
   },
   {
     q: 'What if I send the cheque to the wrong person?',
-    a: 'You can cancel and get your money back any time before the recipient starts claiming it. After that, it can only be cashed by the verified contact on the cheque.',
+    a: 'You can cancel and get your money back any time before the recipient starts claiming it. After that, it is on its way to whoever claimed it.',
   },
   {
     q: 'What if it is never claimed?',
@@ -137,7 +129,7 @@ const FAQ = [
   },
   {
     q: 'Is the link safe to share in a group chat?',
-    a: 'Share it with the person it is for. Even if the link is forwarded, the one-time code goes only to the phone or email you wrote on the cheque.',
+    a: 'Only share it with the person it is for. Anyone who holds the link can claim the cheque, so keep it out of public groups.',
   },
 ];
 
@@ -158,13 +150,6 @@ export default function Home() {
       <nav className="sticky top-0 z-40 bg-night text-paper">
         <div className="mx-auto flex h-16 max-w-[1200px] items-center justify-between gap-4 px-5">
           <Logo tone="light" />
-          <div className="hidden gap-7 text-xs font-normal uppercase tracking-[.18em] lg:flex">
-            {NAV.map((n) => (
-              <a key={n.href} href={n.href} className="transition hover:text-brand-500">
-                {n.label}
-              </a>
-            ))}
-          </div>
           <div className="flex items-center gap-3">
             <Link
               href="/app"
@@ -189,7 +174,7 @@ export default function Home() {
           </h1>
           <p className="mx-auto mt-8 max-w-lg animate-rise text-base text-paper/80 [animation-delay:260ms]">
             Cross-border digital cheques. Send the link on WhatsApp, Telegram or Instagram. Your recipient needs no
-            account and no app. They verify, then decide where the money goes. Unclaimed cheques come straight back.
+            account and no app. They open it and decide where the money goes. Unclaimed cheques come straight back.
           </p>
           <div className="mt-8 flex animate-rise flex-wrap items-center justify-center gap-3 [animation-delay:340ms]">
             <Link href="/app" className="btn-primary px-9 py-4 focus-visible:ring-offset-night">
@@ -221,10 +206,8 @@ export default function Home() {
       {/* cheque showcase */}
       <section className="relative mx-auto max-w-[1200px] px-5 pb-28 pt-24">
         <div className="relative mx-auto max-w-[760px]">
-          <Patch kind="star" label="Settled on Stellar" rotate={-10} className="absolute -left-4 -top-16 z-10 hidden sm:block md:-left-24" size={150} />
-          <Patch kind="coin" label="Cash out locally" rotate={9} className="absolute -right-4 -top-12 z-10 hidden sm:block md:-right-24" size={130} />
           <div className="-rotate-2">
-            <ChequePaper currency="GHS" amountValue={500} date="12 Nov 2026" amount="₵500.00" payee="Kojo Mensah" from="Ama" note="For rent, thank you" code="CHQ-82F9K2" stamp="Verified" />
+            <ChequePaper currency="GHS" amountValue={500} date="12 Nov 2026" amount="₵500.00" payee="Kojo Mensah" from="Ama" note="For rent, thank you" code="CHQ-82F9K2" stamp="Paid" />
           </div>
           <div className="absolute -bottom-9 left-4 z-10 rotate-[-4deg] bg-brand-500 px-4 py-2 text-xs font-medium uppercase tracking-[.18em] text-night">
             Held in escrow until claimed
@@ -418,22 +401,12 @@ export default function Home() {
       </section>
 
       <footer className="bg-night text-paper">
-        <div className="mx-auto grid max-w-[1200px] gap-10 px-5 py-12 md:grid-cols-[1.4fr_1fr_1fr]">
+        <div className="mx-auto grid max-w-[1200px] gap-10 px-5 py-12 md:grid-cols-[1.4fr_1fr]">
           <div>
             <Logo tone="light" />
             <p className="mt-4 max-w-xs text-sm text-paper/70">
               Cross-border digital cheques between Ghana, Nigeria and the United States, settled on Stellar.
             </p>
-          </div>
-          <div>
-            <p className="eyebrow text-moss">Product</p>
-            <ul className="mt-4 space-y-2 text-sm">
-              {NAV.map((n) => (
-                <li key={n.href}>
-                  <a href={n.href} className="text-paper/80 transition hover:text-brand-500">{n.label}</a>
-                </li>
-              ))}
-            </ul>
           </div>
           <div>
             <p className="eyebrow text-moss">Get started</p>

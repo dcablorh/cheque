@@ -76,9 +76,7 @@ export const EnvSchema = z.object({
   SMS_SENDER_ID: z.string().default('CHEQUE'),
 
   // Transactional email (payee OTP + cheque-received notifications)
-  EMAIL_PROVIDER: z.enum(['RESEND']).default('RESEND'),
   EMAIL_API_KEY: z.string().optional(),
-  EMAIL_FROM: z.string().default('Digital Cheque <no-reply@cheq.app>'),
 
   // Security & App
   JWT_SECRET: z.string().min(16).default('development_jwt_secret_must_be_changed_in_prod'),

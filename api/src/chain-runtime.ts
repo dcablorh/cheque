@@ -19,7 +19,7 @@ export async function buildChainHandlerFromEnv(
   env: Env,
   pool: Pool,
   onApplied?: (item: OutboxItem, payload: ChainOperationPayload) => Promise<void>
-): Promise<{ handler: (item: OutboxItem) => Promise<void>; fundingPublicKey: string } | undefined> {
+): Promise<{ handler: (item: OutboxItem) => Promise<void>; fundingPublicKey: string; client: ChequeContractClient } | undefined> {
   const contractId = env.CHEQUE_CONTRACT_ID;
   if (!contractId || !contractId.startsWith('C')) {
     logger.warn('CHEQUE_CONTRACT_ID is not a deployed contract id; chain operations are DISABLED (run pnpm deploy:contract).');
@@ -64,5 +64,5 @@ export async function buildChainHandlerFromEnv(
     store: createPgChainTxStore(pool),
     onApplied,
   });
-  return { handler, fundingPublicKey: await funder.getPublicKey() };
+  return { handler, fundingPublicKey: await funder.getPublicKey(), client };
 }

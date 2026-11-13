@@ -3,7 +3,7 @@
 import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { CheckCircle2, ExternalLink, Clock, ShieldCheck, Smartphone, Wallet, XCircle } from 'lucide-react';
-import { ApiError, fmtMoney, publicApi, timeLeft } from '@/lib/api';
+import { ApiError, fmtDate, fmtMoney, isStellarAddress, publicApi, timeLeft } from '@/lib/api';
 import { COUNTRIES, type CountryCode } from '@/lib/countries';
 import { ChequePaper, ErrorNote, CorridorMap, Logo, Spinner } from '@/components/ui';
 
@@ -16,7 +16,9 @@ interface PublicCheque {
   amount: string;
   currency: string;
   note: string | null;
+  signature?: string | null;
   expiresAt: string;
+  createdAt?: string;
 }
 interface ClaimStatus extends PublicCheque {
   destination: string | null;
@@ -24,7 +26,7 @@ interface ClaimStatus extends PublicCheque {
   network: string;
 }
 
-type Step = 'summary' | 'code' | 'destination';
+type Step = 'summary' | 'destination';
 
 const DEAD: Record<string, { title: string; body: string }> = {
   CANCELLED: { title: 'Cheque cancelled', body: 'The sender cancelled this cheque.' },
@@ -41,28 +43,27 @@ export default function ClaimPage() {
   const [step, setStep] = useState<Step>('summary');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [code, setCode] = useState('');
+  const [loadError, setLoadError] = useState('');
   const [address, setAddress] = useState('');
-  const [sentVia, setSentVia] = useState('');
   const idem = useRef('');
-
-  const sKey = `cheque.claim.${token}`;
-  const getSession = () => {
-    try { return sessionStorage.getItem(sKey) ?? ''; } catch { return ''; }
-  };
 
   const refresh = useCallback(async () => {
     try {
       setCheque(await publicApi.get<ClaimStatus>(`/claim/${token}/status`));
+      setLoadError('');
     } catch (e) {
       if (e instanceof ApiError && e.status === 404) setMissing(true);
+      else setLoadError(e instanceof ApiError ? e.message : 'Could not load this cheque.');
     }
   }, [token]);
+
+  const addressTouched = address.trim().length > 0;
+  const addressValid = isStellarAddress(address);
+  const dateLabel = (c: PublicCheque) => (c.createdAt ? fmtDate(c.createdAt) : undefined);
 
   useEffect(() => {
     idem.current = crypto.randomUUID();
     refresh();
-    if (getSession()) setStep('destination');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refresh]);
 
@@ -85,28 +86,10 @@ export default function ClaimPage() {
     }
   }
 
-  const sendCode = () =>
-    run(async () => {
-      const r = await publicApi.post<{ channel: string }>(`/claim/${token}/otp`);
-      setSentVia(r.channel);
-      setStep('code');
-      refresh();
-    });
-
-  const verify = (e: React.FormEvent) => {
-    e.preventDefault();
-    return run(async () => {
-      const r = await publicApi.post<{ sessionToken: string }>(`/claim/${token}/verify`, { otp: code });
-      try { sessionStorage.setItem(sKey, r.sessionToken); } catch { /* ignore */ }
-      setStep('destination');
-    });
-  };
-
   const redeem = (e: React.FormEvent) => {
     e.preventDefault();
     return run(async () => {
       await publicApi.post(`/claim/${token}/redeem`, {
-        sessionToken: getSession(),
         destination: { type: 'USDC', accountRef: address.trim() },
         idempotencyKey: idem.current,
       });
@@ -115,17 +98,31 @@ export default function ClaimPage() {
   };
 
   if (missing) return <Shell><Dead icon={XCircle} title="Link not valid" body="This cheque link doesn't exist. Check that you copied the whole link." /></Shell>;
-  if (!cheque) return <Shell><div className="flex justify-center py-24"><Spinner className="h-6 w-6 text-brand-500" /></div></Shell>;
+  if (!cheque) {
+    return (
+      <Shell>
+        {loadError ? (
+          <div className="card animate-rise space-y-4 p-8 text-center">
+            <p className="font-semibold">We could not load this cheque.</p>
+            <p className="text-sm text-ink-soft">{loadError}</p>
+            <button className="btn-primary" onClick={() => { setLoadError(''); refresh(); }}>Try again</button>
+          </div>
+        ) : (
+          <div className="flex justify-center py-24"><Spinner className="h-6 w-6 text-brand-500" /></div>
+        )}
+      </Shell>
+    );
+  }
 
   const paper = (
-    <ChequePaper currency={cheque.currency} amountValue={cheque.amount} amount={fmtMoney(cheque.amount, cheque.currency)} payee={cheque.payee} from={cheque.senderFirstName} note={cheque.note} code={cheque.publicCode} />
+    <ChequePaper currency={cheque.currency} amountValue={cheque.amount} amount={fmtMoney(cheque.amount, cheque.currency)} payee={cheque.payee} from={cheque.senderFirstName} signature={cheque.signature} date={dateLabel(cheque)} note={cheque.note} code={cheque.publicCode} />
   );
 
   if (cheque.state === 'SETTLED') {
     return (
       <Shell>
-        <ChequePaper currency={cheque.currency} amountValue={cheque.amount} amount={fmtMoney(cheque.amount, cheque.currency)} payee={cheque.payee} from={cheque.senderFirstName} note={cheque.note} code={cheque.publicCode} stamp="Paid" />
-        <div className="card mt-5 animate-rise space-y-3 p-7 text-center">
+        <ChequePaper currency={cheque.currency} amountValue={cheque.amount} amount={fmtMoney(cheque.amount, cheque.currency)} payee={cheque.payee} from={cheque.senderFirstName} signature={cheque.signature} date={dateLabel(cheque)} note={cheque.note} code={cheque.publicCode} stamp="Paid" />
+        <div className="card mt-5 animate-rise space-y-3 p-7 text-center" role="status">
           <CheckCircle2 className="mx-auto h-10 w-10 text-brand-600" />
           <h1 className="display ">{fmtMoney(cheque.amount, cheque.currency)} delivered</h1>
           <p className="break-all text-sm text-ink-soft">Sent to <span className="font-mono text-xs">{cheque.destination}</span></p>
@@ -173,31 +170,14 @@ export default function ClaimPage() {
             <div className="flex gap-3">
               <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-brand-600" />
               <p className="text-sm text-ink-soft">
-                To keep this safe, we&apos;ll send a one-time code to the contact this cheque was written for, then you
-                choose where the money goes.
+                This cheque was sent to you as a link. Claim it, then choose where the money goes.
               </p>
             </div>
             <ErrorNote>{error}</ErrorNote>
-            <button className="btn-primary w-full py-4" onClick={sendCode} disabled={busy}>
-              {busy && <Spinner />} Claim {fmtMoney(cheque.amount, cheque.currency)}
+            <button className="btn-primary w-full py-4" onClick={() => setStep('destination')}>
+              Claim {fmtMoney(cheque.amount, cheque.currency)}
             </button>
           </div>
-        )}
-
-        {step === 'code' && (
-          <form onSubmit={verify} className="card space-y-4 p-6">
-            <div>
-              <h2 className="display ">Enter your code</h2>
-              <p className="mt-1 text-sm text-ink-soft">
-                We sent a 6-digit code {sentVia ? `by ${sentVia.toLowerCase()}` : ''} to the contact on this cheque.
-              </p>
-            </div>
-            <input className="field text-center font-mono text-2xl tracking-[.5em]" inputMode="numeric" maxLength={6}
-              autoComplete="one-time-code" autoFocus value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} />
-            <ErrorNote>{error}</ErrorNote>
-            <button className="btn-primary w-full" disabled={busy || code.length !== 6}>{busy && <Spinner />} Verify</button>
-            <button type="button" className="w-full text-sm text-ink-soft underline underline-offset-4" onClick={sendCode} disabled={busy}>Resend code</button>
-          </form>
         )}
 
         {step === 'destination' && (
@@ -223,11 +203,16 @@ export default function ClaimPage() {
             <div>
               <label className="label" htmlFor="addr">Stellar address</label>
               <input id="addr" className="field font-mono text-sm" placeholder="G…" spellCheck={false} autoCapitalize="characters"
-                value={address} onChange={(e) => setAddress(e.target.value)} />
-              <p className="mt-1.5 text-xs text-ink-mute">Must be a Stellar account that already holds a USDC trustline.</p>
+                autoComplete="off" aria-invalid={addressTouched && !addressValid} aria-describedby="addr-help"
+                value={address} onChange={(e) => setAddress(e.target.value.trim())} />
+              <p id="addr-help" className={`mt-1.5 text-xs ${addressTouched && !addressValid ? 'font-semibold text-cedi' : 'text-ink-mute'}`}>
+                {addressTouched && !addressValid
+                  ? `A Stellar address starts with G and has 56 characters. This one has ${address.length}.`
+                  : 'Must be a Stellar account that already holds a USDC trustline.'}
+              </p>
             </div>
             <ErrorNote>{error}</ErrorNote>
-            <button className="btn-primary w-full py-4" disabled={busy || address.trim().length !== 56}>
+            <button className="btn-primary w-full py-4" disabled={busy || !addressValid}>
               {busy && <Spinner />} Get my {fmtMoney(cheque.amount, cheque.currency)}
             </button>
           </form>

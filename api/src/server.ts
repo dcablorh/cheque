@@ -7,8 +7,6 @@ import {
   getPool,
   closePool,
   runMigrations,
-  getReconciliationReport,
-  checkChequeReconciliation,
 } from '@cheque/core';
 import {
   WhatsAppClient,
@@ -19,7 +17,6 @@ import {
   PHONE_ERROR,
   WhatsAppDeliveryReceipt,
   SmsDeliveryReceipt,
-  EmailClient,
 } from '@cheque/notify';
 import { createOutboxWorker } from './outbox-worker.js';
 import { buildChainHandlerFromEnv } from './chain-runtime.js';
@@ -90,19 +87,6 @@ export async function buildApp() {
         apiSecret: env.SMS_API_SECRET,
         senderId: env.SMS_SENDER_ID || 'CHEQUE',
       });
-
-  const emailClient = env.EMAIL_API_KEY
-    ? EmailClient.fromConfig({ provider: 'RESEND', apiKey: env.EMAIL_API_KEY, from: env.EMAIL_FROM })
-    : devConsoleDelivery
-      ? ({
-          async sendOtp(p: { to: string; otp: string }) {
-            console.log(`
-[DEV EMAIL -> ${p.to}] verification code ${p.otp}
-`);
-            return { messageId: 'dev-console' };
-          },
-        } as unknown as EmailClient)
-      : undefined;
 
   const otpService = new PhoneOtpService({
     salt: env.OTP_SALT || 'cheque_otp_salt_secret',
@@ -238,38 +222,6 @@ export async function buildApp() {
     }
   });
 
-  // Set Optional PIN for Sensitive Actions
-  app.post<{
-    Body: {
-      userId: string;
-      pin: string;
-    };
-  }>('/auth/pin/set', async (request, reply) => {
-    const { userId, pin } = request.body;
-    try {
-      await authService.setPin(userId, pin);
-      return { success: true, message: 'PIN set successfully' };
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      return reply.badRequest(msg);
-    }
-  });
-
-  // Verify PIN
-  app.post<{
-    Body: {
-      userId: string;
-      pin: string;
-    };
-  }>('/auth/pin/verify', async (request, reply) => {
-    const { userId, pin } = request.body;
-    const isValid = await authService.verifyPin(userId, pin);
-    if (!isValid) {
-      return reply.unauthorized('Invalid PIN');
-    }
-    return { success: true, verified: true };
-  });
-
   // --- WEBHOOKS ---
 
   // Meta WhatsApp Webhook Verification (Hub Challenge)
@@ -358,47 +310,13 @@ export async function buildApp() {
     return { status: 'received' };
   });
 
-  // --- RECONCILIATION & TRANSITIONS ---
-
-  // Reconciliation report endpoint comparing off-chain state with on-chain events
-  app.get('/reconciliation', async (request, reply) => {
-    try {
-      const rows = await getReconciliationReport(pool);
-      return {
-        total: rows.length,
-        reconciled: rows.filter((r) => r.isReconciled).length,
-        discrepancies: rows.filter((r) => !r.isReconciled).length,
-        data: rows,
-      };
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      return reply.internalServerError(`Failed to fetch reconciliation report: ${msg}`);
-    }
-  });
-
-  app.get<{ Params: { id: string } }>('/reconciliation/:id', async (request, reply) => {
-    try {
-      const row = await checkChequeReconciliation(request.params.id, pool);
-      if (!row) {
-        return reply.notFound('Cheque not found');
-      }
-      return row;
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      return reply.internalServerError(`Failed to fetch cheque reconciliation: ${msg}`);
-    }
-  });
-
   registerChequeRoutes({
     app,
     pool,
     env,
     authService,
-    otpService,
-    whatsAppClient,
-    smsClient,
-    emailClient,
     fundingPublicKey: chain?.fundingPublicKey,
+    chainClient: chain?.client,
     chainEnabled: !!chain,
   });
 

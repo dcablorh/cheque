@@ -121,11 +121,10 @@ describe('fiat to USDC conversion for any corridor currency', () => {
 describe('CreateChequeSchema with corridors', () => {
   const base = {
     payeeName: 'Ama Mensah',
-    payeeContact: { type: 'PHONE', value: '+2348012345678' },
   };
 
   it('defaults to Ghana when no corridor is sent', () => {
-    const r = CreateChequeSchema.safeParse({ ...base, payeeContact: { type: 'PHONE', value: '+233241234567' }, amount: 50 });
+    const r = CreateChequeSchema.safeParse({ ...base, amount: 50 });
     expect(r.success).toBe(true);
     if (r.success) expect(r.data.corridor).toBe('GH');
   });
