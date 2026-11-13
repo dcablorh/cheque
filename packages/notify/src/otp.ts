@@ -4,8 +4,6 @@ import { logger } from '@cheque/shared';
 import { normalizePhone, PHONE_ERROR } from './phone.js';
 import { WhatsAppClient } from './whatsapp.js';
 import { SmsClient } from './sms.js';
-import { EmailClient } from './email.js';
-import { PayeeContact, contactKey } from './contact.js';
 
 export interface OtpConfig {
   salt: string;
@@ -162,18 +160,6 @@ export class PhoneOtpService {
     return { phoneE164, ...session };
   }
 
-  /**
-   * Generates and stores OTP for any payee contact (phone or email).
-   * Sessions are namespaced by contact type so they never collide with phone-auth sessions.
-   */
-  async createContactOtpSession(params: {
-    contact: PayeeContact;
-    ipAddress?: string;
-    deviceFp?: string;
-  }): Promise<{ otp: string; otpHash: string; expiresAt: Date }> {
-    return this.createSessionForKey(contactKey(params.contact), params);
-  }
-
   private async createSessionForKey(
     key: string,
     params: { ipAddress?: string; deviceFp?: string }
@@ -232,11 +218,6 @@ export class PhoneOtpService {
   async verifyOtp(phoneInput: string, incomingOtp: string): Promise<boolean> {
     const norm = normalizePhone(phoneInput);
     return this.verifyForKey(norm.isValid ? norm.phoneE164 : phoneInput, incomingOtp);
-  }
-
-  /** Verifies an OTP issued via `createContactOtpSession` / `sendContactOtp`. */
-  async verifyContactOtp(contact: PayeeContact, incomingOtp: string): Promise<boolean> {
-    return this.verifyForKey(contactKey(contact), incomingOtp);
   }
 
   private async verifyForKey(phoneE164: string, incomingOtp: string): Promise<boolean> {
@@ -366,45 +347,6 @@ export class PhoneOtpService {
     }
 
     throw new Error('No notification provider (WhatsApp or SMS) available to deliver OTP');
-  }
-
-  /**
-   * Dispatches an OTP to a payee contact. Email contacts get email; phone contacts
-   * go WhatsApp-first with SMS fallback.
-   */
-  async sendContactOtp(params: {
-    contact: PayeeContact;
-    whatsAppClient?: WhatsAppClient;
-    smsClient?: SmsClient;
-    emailClient?: EmailClient;
-    ipAddress?: string;
-    deviceFp?: string;
-  }): Promise<{ channel: 'WHATSAPP' | 'SMS' | 'EMAIL'; messageId?: string }> {
-    const { contact } = params;
-
-    if (contact.type === 'EMAIL') {
-      if (!params.emailClient) {
-        throw new Error('No email provider available to deliver OTP');
-      }
-      const { otp } = await this.createContactOtpSession(params);
-      const res = await params.emailClient.sendOtp({
-        to: contact.value,
-        otp,
-        expiryMinutes: Math.round(this.config.expirySeconds / 60),
-      });
-      return { channel: 'EMAIL', messageId: res.messageId };
-    }
-
-    if (!params.whatsAppClient && !params.smsClient) {
-      throw new Error('No notification provider (WhatsApp or SMS) available to deliver OTP');
-    }
-    const { otp } = await this.createContactOtpSession(params);
-    return this.deliverPhoneOtp({
-      phoneE164: contact.value,
-      otp,
-      whatsAppClient: params.whatsAppClient,
-      smsClient: params.smsClient,
-    });
   }
 
   private async clearOtpSession(phoneE164: string): Promise<void> {

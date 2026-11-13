@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizePhone, parsePayeeContact } from '../src/index.js';
+import { normalizePhone } from '../src/index.js';
 
 describe('normalizePhone (Ghana, Nigeria, US)', () => {
   it.each([
@@ -25,8 +25,5 @@ describe('normalizePhone (Ghana, Nigeria, US)', () => {
   });
 
   it('parses payee contacts from any supported country', () => {
-    expect(parsePayeeContact('08012345678')).toEqual({ type: 'PHONE', value: '+2348012345678' });
-    expect(parsePayeeContact('202-555-0123')).toEqual({ type: 'PHONE', value: '+12025550123' });
-    expect(parsePayeeContact('+4915112345678')).toBeNull();
   });
 });

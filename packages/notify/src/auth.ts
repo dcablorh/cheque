@@ -194,54 +194,6 @@ export class SenderAuthService {
   }
 
   /**
-   * Sets or updates user PIN for sensitive actions (e.g. payout authorization, large amounts).
-   */
-  async setPin(userId: string, pin: string): Promise<void> {
-    if (!/^\d{4,6}$/.test(pin)) {
-      throw new Error('PIN must be 4 to 6 numeric digits');
-    }
-
-    const pinHash = this.hashPin(pin);
-    const client = await this.pool.connect();
-    try {
-      await client.query(
-        `UPDATE users SET pin_hash = $1, updated_at = NOW() WHERE id = $2;`,
-        [pinHash, userId]
-      );
-    } finally {
-      client.release();
-    }
-  }
-
-  /**
-   * Verifies user PIN using constant-time comparison.
-   */
-  async verifyPin(userId: string, pin: string): Promise<boolean> {
-    const client = await this.pool.connect();
-    try {
-      const res = await client.query(
-        `SELECT pin_hash FROM users WHERE id = $1;`,
-        [userId]
-      );
-      const storedHash = res.rows[0]?.pin_hash;
-      if (!storedHash) {
-        return false;
-      }
-
-      const incomingHash = this.hashPin(pin);
-      const inBuf = Buffer.from(incomingHash, 'hex');
-      const storeBuf = Buffer.from(storedHash, 'hex');
-
-      return (
-        inBuf.length === storeBuf.length &&
-        crypto.timingSafeEqual(inBuf, storeBuf)
-      );
-    } finally {
-      client.release();
-    }
-  }
-
-  /**
    * Verifies and decodes an access JWT.
    */
   verifyAccessToken(token: string): JwtPayload {
@@ -322,11 +274,5 @@ export class SenderAuthService {
 
   private hashToken(token: string): string {
     return crypto.createHash('sha256').update(token).digest('hex');
-  }
-
-  private hashPin(pin: string): string {
-    return crypto
-      .pbkdf2Sync(pin, this.config.pinSalt, 10000, 32, 'sha256')
-      .toString('hex');
   }
 }
