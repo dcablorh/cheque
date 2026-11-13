@@ -1,4 +1,6 @@
 export * from './phone.js';
+export * from './contact.js';
+export * from './email.js';
 export * from './whatsapp.js';
 export * from './sms.js';
 export * from './otp.js';

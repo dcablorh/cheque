@@ -33,7 +33,7 @@ export class EnvKeypairSigner implements KeySigner {
   }
 
   async signHash(hash: Buffer): Promise<Buffer> {
-    return this.keypair.sign(hash);
+    return Buffer.from(this.keypair.sign(hash));
   }
 }
 
@@ -56,7 +56,7 @@ export class KmsSigner implements KeySigner {
   }
 
   async signTransaction<T extends Transaction | FeeBumpTransaction>(tx: T): Promise<T> {
-    const hash = tx.hash();
+    const hash = Buffer.from(tx.hash());
     const signature = await this.signHashFn(hash);
     const keypair = Keypair.fromPublicKey(this.publicKey);
     // Decorate signature onto transaction

@@ -15,12 +15,16 @@ import {
   Keypair,
 } from '@stellar/stellar-sdk';
 import { KeySigner } from '../signer.js';
+import { chequeIdHexToBytes } from '../cheque-id.js';
 import { parseContractError } from '../errors.js';
 import {
   OnChainCheque,
   OnChainChequeState,
   OnChainConfig,
   OnChainLockInfo,
+  decodeOnChainCheque,
+  decodeOnChainConfig,
+  encodeOnChainConfig,
 } from '../contract-types.js';
 
 export interface ContractErrorMap {
@@ -76,8 +80,7 @@ export class ChequeContractBindings {
   // --- ScVal Serialization Helpers ---
 
   public static encodeBytes32(hex: string): xdr.ScVal {
-    const clean = hex.startsWith('0x') ? hex.slice(2) : hex;
-    return xdr.ScVal.scvBytes(Buffer.from(clean, 'hex'));
+    return xdr.ScVal.scvBytes(chequeIdHexToBytes(hex));
   }
 
   public static encodeAddress(addr: string): xdr.ScVal {
@@ -93,24 +96,14 @@ export class ChequeContractBindings {
   }
 
   public static encodeConfig(config: OnChainConfig): xdr.ScVal {
-    return nativeToScVal(
-      {
-        min_amount: config.minAmount,
-        max_amount: config.maxAmount,
-        max_lock_secs: config.maxLockSecs,
-        delay_threshold: config.delayThreshold,
-        delay_secs: config.delaySecs,
-        paused: config.paused,
-      },
-      { type: 'object' }
-    );
+    return encodeOnChainConfig(config);
   }
 
   public static decodeCheque(val: xdr.ScVal): OnChainCheque {
-    return scValToNative(val) as OnChainCheque;
+    return decodeOnChainCheque(scValToNative(val));
   }
 
   public static decodeConfig(val: xdr.ScVal): OnChainConfig {
-    return scValToNative(val) as OnChainConfig;
+    return decodeOnChainConfig(scValToNative(val));
   }
 }

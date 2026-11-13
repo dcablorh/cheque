@@ -1,9 +1,11 @@
 import crypto from 'node:crypto';
 import Redis from 'ioredis';
 import { logger } from '@cheque/shared';
-import { normalizeGhanaPhone } from './phone.js';
+import { normalizePhone, PHONE_ERROR } from './phone.js';
 import { WhatsAppClient } from './whatsapp.js';
 import { SmsClient } from './sms.js';
+import { EmailClient } from './email.js';
+import { PayeeContact, contactKey } from './contact.js';
 
 export interface OtpConfig {
   salt: string;
@@ -143,26 +145,46 @@ export class PhoneOtpService {
   }
 
   /**
-   * Generates and stores OTP, enforcing rate limits and cooldown.
+   * Generates and stores OTP for a phone number (Ghana, Nigeria or US), enforcing rate limits and cooldown.
    */
   async createOtpSession(params: {
     phoneInput: string;
     ipAddress?: string;
     deviceFp?: string;
   }): Promise<{ phoneE164: string; otp: string; otpHash: string; expiresAt: Date }> {
-    const norm = normalizeGhanaPhone(params.phoneInput);
+    const norm = normalizePhone(params.phoneInput);
     if (!norm.isValid) {
-      throw new Error(`Invalid Ghana phone number: ${params.phoneInput}`);
+      throw new Error(`Invalid phone number: ${params.phoneInput}. ${PHONE_ERROR}`);
     }
 
     const phoneE164 = norm.phoneE164;
-    await this.checkRateLimits({ phoneE164, ipAddress: params.ipAddress, deviceFp: params.deviceFp });
+    const session = await this.createSessionForKey(phoneE164, params);
+    return { phoneE164, ...session };
+  }
+
+  /**
+   * Generates and stores OTP for any payee contact (phone or email).
+   * Sessions are namespaced by contact type so they never collide with phone-auth sessions.
+   */
+  async createContactOtpSession(params: {
+    contact: PayeeContact;
+    ipAddress?: string;
+    deviceFp?: string;
+  }): Promise<{ otp: string; otpHash: string; expiresAt: Date }> {
+    return this.createSessionForKey(contactKey(params.contact), params);
+  }
+
+  private async createSessionForKey(
+    key: string,
+    params: { ipAddress?: string; deviceFp?: string }
+  ): Promise<{ otp: string; otpHash: string; expiresAt: Date }> {
+    await this.checkRateLimits({ phoneE164: key, ipAddress: params.ipAddress, deviceFp: params.deviceFp });
 
     const { otp, otpHash } = this.generateOtp();
     const expiresAtMs = Date.now() + this.config.expirySeconds * 1000;
 
-    const recordKey = `otp:session:${phoneE164}`;
-    const cooldownKey = `otp:cooldown:${phoneE164}`;
+    const recordKey = `otp:session:${key}`;
+    const cooldownKey = `otp:cooldown:${key}`;
 
     if (this.redis) {
       const current = await this.redis.get(recordKey);
@@ -173,7 +195,7 @@ export class PhoneOtpService {
       }
 
       const record: StoredOtpRecord = {
-        phoneE164,
+        phoneE164: key,
         otpHash,
         sendsCount,
         verifyAttempts: 0,
@@ -186,9 +208,9 @@ export class PhoneOtpService {
       await this.redis.set(recordKey, JSON.stringify(record), 'EX', this.config.expirySeconds);
       await this.redis.set(cooldownKey, '1', 'EX', this.config.resendCooldownSeconds);
     } else {
-      const existing = this.inMemoryStore.get(phoneE164);
+      const existing = this.inMemoryStore.get(key);
       const record: StoredOtpRecord = {
-        phoneE164,
+        phoneE164: key,
         otpHash,
         sendsCount: (existing?.sendsCount ?? 0) + 1,
         verifyAttempts: 0,
@@ -197,15 +219,10 @@ export class PhoneOtpService {
         deviceFp: params.deviceFp,
         ipAddress: params.ipAddress,
       };
-      this.inMemoryStore.set(phoneE164, record);
+      this.inMemoryStore.set(key, record);
     }
 
-    return {
-      phoneE164,
-      otp,
-      otpHash,
-      expiresAt: new Date(expiresAtMs),
-    };
+    return { otp, otpHash, expiresAt: new Date(expiresAtMs) };
   }
 
   /**
@@ -213,8 +230,16 @@ export class PhoneOtpService {
    * Tracks attempts and enforces 5 attempts max before invalidation.
    */
   async verifyOtp(phoneInput: string, incomingOtp: string): Promise<boolean> {
-    const norm = normalizeGhanaPhone(phoneInput);
-    const phoneE164 = norm.isValid ? norm.phoneE164 : phoneInput;
+    const norm = normalizePhone(phoneInput);
+    return this.verifyForKey(norm.isValid ? norm.phoneE164 : phoneInput, incomingOtp);
+  }
+
+  /** Verifies an OTP issued via `createContactOtpSession` / `sendContactOtp`. */
+  async verifyContactOtp(contact: PayeeContact, incomingOtp: string): Promise<boolean> {
+    return this.verifyForKey(contactKey(contact), incomingOtp);
+  }
+
+  private async verifyForKey(phoneE164: string, incomingOtp: string): Promise<boolean> {
     const recordKey = `otp:session:${phoneE164}`;
 
     let record: StoredOtpRecord | undefined;
@@ -299,13 +324,24 @@ export class PhoneOtpService {
       deviceFp: params.deviceFp,
     });
 
+    const res = await this.deliverPhoneOtp({ phoneE164, otp, ...params });
+    return { phoneE164, ...res };
+  }
+
+  private async deliverPhoneOtp(params: {
+    phoneE164: string;
+    otp: string;
+    whatsAppClient?: WhatsAppClient;
+    smsClient?: SmsClient;
+    forceSms?: boolean;
+  }): Promise<{ channel: 'WHATSAPP' | 'SMS'; messageId?: string }> {
+    const { phoneE164, otp } = params;
+    const smsBody = `Your Digital Cheque verification code is: ${otp}. Valid for 5 minutes. Do not share this code.`;
+
     // 1. Send via SMS directly if requested
     if (params.forceSms && params.smsClient) {
-      const smsRes = await params.smsClient.sendSms(
-        phoneE164,
-        `Your Digital Cheque verification code is: ${otp}. Valid for 5 minutes. Do not share this code.`
-      );
-      return { phoneE164, channel: 'SMS', messageId: smsRes.messageId };
+      const smsRes = await params.smsClient.sendSms(phoneE164, smsBody);
+      return { channel: 'SMS', messageId: smsRes.messageId };
     }
 
     // 2. Try WhatsApp first
@@ -317,7 +353,7 @@ export class PhoneOtpService {
           parameters: [otp],
           buttonPayload: otp,
         });
-        return { phoneE164, channel: 'WHATSAPP', messageId: waRes.messageId };
+        return { channel: 'WHATSAPP', messageId: waRes.messageId };
       } catch (err: unknown) {
         logger.warn(`WhatsApp delivery failed for ${phoneE164}, falling back to SMS: ${(err as any)?.message}`);
       }
@@ -325,14 +361,50 @@ export class PhoneOtpService {
 
     // 3. Fallback to SMS
     if (params.smsClient) {
-      const smsRes = await params.smsClient.sendSms(
-        phoneE164,
-        `Your Digital Cheque verification code is: ${otp}. Valid for 5 minutes. Do not share this code.`
-      );
-      return { phoneE164, channel: 'SMS', messageId: smsRes.messageId };
+      const smsRes = await params.smsClient.sendSms(phoneE164, smsBody);
+      return { channel: 'SMS', messageId: smsRes.messageId };
     }
 
     throw new Error('No notification provider (WhatsApp or SMS) available to deliver OTP');
+  }
+
+  /**
+   * Dispatches an OTP to a payee contact. Email contacts get email; phone contacts
+   * go WhatsApp-first with SMS fallback.
+   */
+  async sendContactOtp(params: {
+    contact: PayeeContact;
+    whatsAppClient?: WhatsAppClient;
+    smsClient?: SmsClient;
+    emailClient?: EmailClient;
+    ipAddress?: string;
+    deviceFp?: string;
+  }): Promise<{ channel: 'WHATSAPP' | 'SMS' | 'EMAIL'; messageId?: string }> {
+    const { contact } = params;
+
+    if (contact.type === 'EMAIL') {
+      if (!params.emailClient) {
+        throw new Error('No email provider available to deliver OTP');
+      }
+      const { otp } = await this.createContactOtpSession(params);
+      const res = await params.emailClient.sendOtp({
+        to: contact.value,
+        otp,
+        expiryMinutes: Math.round(this.config.expirySeconds / 60),
+      });
+      return { channel: 'EMAIL', messageId: res.messageId };
+    }
+
+    if (!params.whatsAppClient && !params.smsClient) {
+      throw new Error('No notification provider (WhatsApp or SMS) available to deliver OTP');
+    }
+    const { otp } = await this.createContactOtpSession(params);
+    return this.deliverPhoneOtp({
+      phoneE164: contact.value,
+      otp,
+      whatsAppClient: params.whatsAppClient,
+      smsClient: params.smsClient,
+    });
   }
 
   private async clearOtpSession(phoneE164: string): Promise<void> {
@@ -376,3 +448,6 @@ export class PhoneOtpService {
     }
   }
 }
+
+/** Contact-agnostic alias; `PhoneOtpService` is kept for backwards compatibility. */
+export { PhoneOtpService as OtpService };

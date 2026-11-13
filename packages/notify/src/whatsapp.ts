@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { logger } from '@cheque/shared';
-import { normalizeGhanaPhone } from './phone.js';
+import { normalizePhone } from './phone.js';
 
 export interface WhatsAppConfig {
   apiToken: string;
@@ -81,8 +81,7 @@ export class WhatsAppClient {
   }): Promise<{ messageId: string }> {
     const { recipientPhoneE164, templateName, languageCode = 'en', parameters = [] } = params;
 
-    // Normalize Ghana phone number
-    const norm = normalizeGhanaPhone(recipientPhoneE164);
+    const norm = normalizePhone(recipientPhoneE164);
     const to = norm.isValid ? norm.phoneE164.replace(/^\+/, '') : recipientPhoneE164.replace(/^\+/, '');
 
     const components: unknown[] = [];

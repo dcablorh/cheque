@@ -212,9 +212,11 @@ export class ContractEventIndexer extends EventEmitter {
       // Second topic is cheque_id (BytesN<32>)
       let chequeIdHex = '';
       if (topicVals[1]) {
-        chequeIdHex = Buffer.isBuffer(topicVals[1])
-          ? topicVals[1].toString('hex')
-          : String(topicVals[1]);
+        // scValToNative yields Uint8Array (not Buffer) for BytesN in current SDKs
+        chequeIdHex =
+          topicVals[1] instanceof Uint8Array
+            ? Buffer.from(topicVals[1]).toString('hex')
+            : String(topicVals[1]);
       }
 
       const decodedPayload = raw.value ? decodeVal(raw.value) : null;

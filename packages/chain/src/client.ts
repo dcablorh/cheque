@@ -22,6 +22,13 @@ import {
 import { ChannelPool } from './channel-pool.js';
 import { SubmissionIdempotencyStore, SubmissionOp } from './idempotency.js';
 import { logger } from '@cheque/shared';
+import { chequeIdHexToBytes } from './cheque-id.js';
+import {
+  decodeOnChainCheque,
+  decodeOnChainConfig,
+  decodeOnChainLock,
+  encodeOnChainConfig,
+} from './contract-types.js';
 
 export interface ContractClientConfig {
   rpcUrl: string;
@@ -215,7 +222,7 @@ export class ChequeContractClient {
     }
 
     const signedXdr = finalTx.toXDR();
-    const txHash = finalTx.hash().toString('hex');
+    const txHash = Buffer.from(finalTx.hash()).toString('hex');
 
     // 5. Submission Idempotency: Persist BEFORE network send
     if (options.chequeIdHex && options.operation && this.idempotencyStore) {
@@ -359,10 +366,7 @@ export class ChequeContractClient {
     options?: InvokeContractOptions
   ) {
     const funderPub = await funderSigner.getPublicKey();
-    const cleanId = params.chequeIdHex.startsWith('0x')
-      ? params.chequeIdHex.slice(2)
-      : params.chequeIdHex;
-    const chequeIdBytes = Buffer.from(cleanId.padEnd(64, '0').slice(0, 64), 'hex');
+    const chequeIdBytes = chequeIdHexToBytes(params.chequeIdHex);
 
     return this.invokeContract({
       functionName: 'create_cheque',
@@ -391,10 +395,7 @@ export class ChequeContractClient {
     },
     options?: InvokeContractOptions
   ) {
-    const cleanId = params.chequeIdHex.startsWith('0x')
-      ? params.chequeIdHex.slice(2)
-      : params.chequeIdHex;
-    const chequeIdBytes = Buffer.from(cleanId.padEnd(64, '0').slice(0, 64), 'hex');
+    const chequeIdBytes = chequeIdHexToBytes(params.chequeIdHex);
 
     return this.invokeContract({
       functionName: 'lock',
@@ -417,8 +418,7 @@ export class ChequeContractClient {
     chequeIdHex: string,
     options?: InvokeContractOptions
   ) {
-    const cleanId = chequeIdHex.startsWith('0x') ? chequeIdHex.slice(2) : chequeIdHex;
-    const chequeIdBytes = Buffer.from(cleanId.padEnd(64, '0').slice(0, 64), 'hex');
+    const chequeIdBytes = chequeIdHexToBytes(chequeIdHex);
 
     return this.invokeContract({
       functionName: 'unlock',
@@ -437,8 +437,7 @@ export class ChequeContractClient {
     chequeIdHex: string,
     options?: InvokeContractOptions
   ) {
-    const cleanId = chequeIdHex.startsWith('0x') ? chequeIdHex.slice(2) : chequeIdHex;
-    const chequeIdBytes = Buffer.from(cleanId.padEnd(64, '0').slice(0, 64), 'hex');
+    const chequeIdBytes = chequeIdHexToBytes(chequeIdHex);
 
     return this.invokeContract({
       functionName: 'veto',
@@ -457,8 +456,7 @@ export class ChequeContractClient {
     chequeIdHex: string,
     options?: InvokeContractOptions
   ) {
-    const cleanId = chequeIdHex.startsWith('0x') ? chequeIdHex.slice(2) : chequeIdHex;
-    const chequeIdBytes = Buffer.from(cleanId.padEnd(64, '0').slice(0, 64), 'hex');
+    const chequeIdBytes = chequeIdHexToBytes(chequeIdHex);
 
     return this.invokeContract({
       functionName: 'redeem',
@@ -477,8 +475,7 @@ export class ChequeContractClient {
     chequeIdHex: string,
     options?: InvokeContractOptions
   ) {
-    const cleanId = chequeIdHex.startsWith('0x') ? chequeIdHex.slice(2) : chequeIdHex;
-    const chequeIdBytes = Buffer.from(cleanId.padEnd(64, '0').slice(0, 64), 'hex');
+    const chequeIdBytes = chequeIdHexToBytes(chequeIdHex);
 
     return this.invokeContract({
       functionName: 'cancel',
@@ -497,8 +494,7 @@ export class ChequeContractClient {
     chequeIdHex: string,
     options?: InvokeContractOptions
   ) {
-    const cleanId = chequeIdHex.startsWith('0x') ? chequeIdHex.slice(2) : chequeIdHex;
-    const chequeIdBytes = Buffer.from(cleanId.padEnd(64, '0').slice(0, 64), 'hex');
+    const chequeIdBytes = chequeIdHexToBytes(chequeIdHex);
 
     return this.invokeContract({
       functionName: 'refund',
@@ -515,8 +511,7 @@ export class ChequeContractClient {
   // --- Read-Only Views ---
 
   async getCheque(chequeIdHex: string): Promise<OnChainCheque> {
-    const cleanId = chequeIdHex.startsWith('0x') ? chequeIdHex.slice(2) : chequeIdHex;
-    const chequeIdBytes = Buffer.from(cleanId.padEnd(64, '0').slice(0, 64), 'hex');
+    const chequeIdBytes = chequeIdHexToBytes(chequeIdHex);
     const dummyKey = Keypair.random();
 
     const initialTx = new TransactionBuilder(
@@ -545,7 +540,33 @@ export class ChequeContractClient {
       throw new ContractError(ContractErrorCode.ChequeNotFound);
     }
 
-    return scValToNative(sim.result.retval) as OnChainCheque;
+    return decodeOnChainCheque(scValToNative(sim.result.retval));
+  }
+
+  /** Active lock for a cheque, or undefined when it is not `Locked`. */
+  async getLock(chequeIdHex: string): Promise<OnChainLockInfo | undefined> {
+    const chequeIdBytes = chequeIdHexToBytes(chequeIdHex);
+    const dummyKey = Keypair.random();
+    const tx = new TransactionBuilder(new Account(dummyKey.publicKey(), '0'), {
+      fee: '100',
+      networkPassphrase: this.config.networkPassphrase,
+    })
+      .addOperation(
+        Operation.invokeContractFunction({
+          contract: this.config.contractId,
+          function: 'get_lock',
+          args: [xdr.ScVal.scvBytes(chequeIdBytes)],
+        })
+      )
+      .setTimeout(30)
+      .build();
+
+    const sim = await this.rpcServer.simulateTransaction(tx);
+    if (rpc.Api.isSimulationError(sim)) {
+      throw parseContractError(new Error(sim.error));
+    }
+    if (!sim.result?.retval) return undefined;
+    return decodeOnChainLock(scValToNative(sim.result.retval));
   }
 
   async getConfig(): Promise<OnChainConfig> {
@@ -572,20 +593,10 @@ export class ChequeContractClient {
       throw parseContractError(new Error('Failed to fetch contract config'));
     }
 
-    return scValToNative(sim.result.retval) as OnChainConfig;
+    return decodeOnChainConfig(scValToNative(sim.result.retval));
   }
 
   private encodeConfig(config: OnChainConfig): xdr.ScVal {
-    return nativeToScVal(
-      {
-        min_amount: config.minAmount,
-        max_amount: config.maxAmount,
-        max_lock_secs: config.maxLockSecs,
-        delay_threshold: config.delayThreshold,
-        delay_secs: config.delaySecs,
-        paused: config.paused,
-      },
-      { type: 'object' }
-    );
+    return encodeOnChainConfig(config);
   }
 }

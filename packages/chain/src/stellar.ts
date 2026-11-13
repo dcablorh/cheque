@@ -134,7 +134,7 @@ export class StellarClient {
     }
 
     const signedXdr = tx.toXDR();
-    const txHash = tx.hash().toString('hex');
+    const txHash = Buffer.from(tx.hash()).toString('hex');
 
     // Rule 5: store/log signed XDR & hash BEFORE submitting to Horizon
     logger.info(`Submitting trustline transaction for ${publicKey} with hash ${txHash}`);
@@ -148,7 +148,7 @@ export class StellarClient {
    */
   async submitTransactionXdr(signedXdr: string): Promise<{ txHash: string; ledger: number }> {
     const tx = TransactionBuilder.fromXDR(signedXdr, this.config.networkPassphrase);
-    const txHash = tx.hash().toString('hex');
+    const txHash = Buffer.from(tx.hash()).toString('hex');
 
     try {
       const res = await this.horizon.submitTransaction(tx as any);

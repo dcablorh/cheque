@@ -3,7 +3,7 @@ import Redis from 'ioredis';
 import pg from 'pg';
 import { getPool, User } from '@cheque/core';
 import { logger } from '@cheque/shared';
-import { normalizeGhanaPhone } from './phone.js';
+import { normalizePhone, PHONE_ERROR } from './phone.js';
 import { PhoneOtpService } from './otp.js';
 import { WhatsAppClient } from './whatsapp.js';
 import { SmsClient } from './sms.js';
@@ -89,9 +89,9 @@ export class SenderAuthService {
     otp: string;
     name?: string;
   }): Promise<AuthTokens> {
-    const norm = normalizeGhanaPhone(params.phoneInput);
+    const norm = normalizePhone(params.phoneInput);
     if (!norm.isValid) {
-      throw new Error(`Invalid Ghana phone number: ${params.phoneInput}`);
+      throw new Error(`Invalid phone number: ${params.phoneInput}. ${PHONE_ERROR}`);
     }
 
     // 1. Verify OTP

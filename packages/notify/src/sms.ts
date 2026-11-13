@@ -1,5 +1,5 @@
 import { logger } from '@cheque/shared';
-import { normalizeGhanaPhone } from './phone.js';
+import { normalizePhone } from './phone.js';
 
 export interface SmsConfig {
   provider: 'HUBTEL' | 'ARKESEL' | 'TWILIO';
@@ -27,8 +27,15 @@ export class SmsClient {
   }
 
   async sendSms(phoneInput: string, message: string): Promise<{ success: boolean; messageId?: string }> {
-    const norm = normalizeGhanaPhone(phoneInput);
+    const norm = normalizePhone(phoneInput);
     const phoneE164 = norm.isValid ? norm.phoneE164 : phoneInput;
+
+    // Hubtel and Arkesel only deliver to Ghana; Nigeria and US numbers need Twilio.
+    if (this.config.provider !== 'TWILIO' && norm.country !== 'GH') {
+      throw new Error(
+        `${this.config.provider} SMS only reaches Ghana numbers. Set SMS_PROVIDER=TWILIO to text ${norm.country ?? 'international'} numbers.`
+      );
+    }
 
     logger.info(`Sending fallback SMS via ${this.config.provider} to ${phoneE164}`);
 

@@ -8,3 +8,4 @@ export * from './idempotency.js';
 export * from './indexer.js';
 export * from './health.js';
 export * from './bindings/index.js';
+export * from './cheque-id.js';
