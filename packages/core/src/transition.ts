@@ -5,10 +5,9 @@ import { isValidTransition, TransitionCheckContext } from './state-machine.js';
 import { validateLedgerTransaction } from './ledger.js';
 import { withTransaction } from './db.js';
 
-/** Maps a flat cheques row (aliased columns) into the domain `Cheque`, nesting the payee contact. */
+/** Maps a flat cheques row (aliased columns) into the domain `Cheque`. */
 export function mapChequeRow(row: Record<string, any>): Cheque {
-  const { payeeContactType, payeeContactValue, ...rest } = row;
-  return { ...rest, payeeContact: { type: payeeContactType, value: payeeContactValue } } as Cheque;
+  return row as Cheque;
 }
 
 export class StateTransitionError extends Error {
@@ -105,8 +104,6 @@ export async function transition(
         claim_token_hash AS "claimTokenHash",
         sender_id AS "senderId",
         payee_name AS "payeeName",
-        payee_contact_type AS "payeeContactType",
-        payee_contact AS "payeeContactValue",
         face_amount_minor AS "faceAmountMinor",
         fee_minor AS "feeMinor",
         note,

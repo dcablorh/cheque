@@ -37,14 +37,6 @@ export type LedgerAccount =
   | 'fx_buffer'
   | 'refunds_pending';
 
-export type PayeeContactType = 'PHONE' | 'EMAIL';
-
-/** How the payee is reached; `value` is E.164 for phones, lowercase for emails. */
-export interface PayeeContact {
-  type: PayeeContactType;
-  value: string;
-}
-
 export interface User {
   id: string;
   phoneE164: string;
@@ -60,12 +52,13 @@ export interface Cheque {
   claimTokenHash: string; // SHA-256 of the 128-bit secret URL token
   senderId: string;
   payeeName: string;
-  payeeContact: PayeeContact;
   corridor: CorridorCode; // Where the cheque is issued and paid out (see corridors.ts)
   currency: FiatCurrency; // Currency of faceAmountMinor and feeMinor
   faceAmountMinor: number; // Integer minor units of `currency` (pesewas for GHS, kobo for NGN, cents for USD)
   feeMinor: number; // Integer minor units of `currency`
   note?: string; // Max 80 chars
+  signature?: string | null; // PNG data URL drawn by the sender
+  funderAddress?: string | null; // Stellar G... address that deposited, when funded from a wallet
   state: ChequeState;
   expiresAt: Date;
   quoteId?: string;

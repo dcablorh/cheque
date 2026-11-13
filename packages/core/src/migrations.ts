@@ -22,8 +22,8 @@ CREATE TABLE IF NOT EXISTS cheques (
   claim_token_hash VARCHAR(64) NOT NULL UNIQUE,
   sender_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
   payee_name VARCHAR(255) NOT NULL,
-  payee_contact_type VARCHAR(10) NOT NULL CHECK (payee_contact_type IN ('PHONE', 'EMAIL')),
-  payee_contact VARCHAR(255) NOT NULL, -- E.164 phone or lowercase email
+  payee_contact_type VARCHAR(10) CHECK (payee_contact_type IN ('PHONE', 'EMAIL')),
+  payee_contact VARCHAR(255), -- E.164 phone or lowercase email
   face_amount_minor BIGINT NOT NULL CHECK (face_amount_minor > 0),
   fee_minor BIGINT NOT NULL DEFAULT 0 CHECK (fee_minor >= 0),
   note VARCHAR(80),
@@ -231,92 +231,9 @@ CREATE TABLE IF NOT EXISTS chain_txs (
 
 CREATE INDEX IF NOT EXISTS idx_chain_txs_cheque_id ON chain_txs(cheque_id);
 
--- 14. Chain Events
-CREATE TABLE IF NOT EXISTS chain_events (
-  id VARCHAR(128) PRIMARY KEY, -- \${tx_hash}:\${event_index}
-  tx_hash VARCHAR(64) NOT NULL,
-  event_index INT NOT NULL,
-  ledger BIGINT NOT NULL,
-  contract_id VARCHAR(64) NOT NULL,
-  topic VARCHAR(32) NOT NULL,
-  cheque_id_hex VARCHAR(64) NOT NULL,
-  payload JSONB NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  CONSTRAINT uq_chain_events_tx_index UNIQUE (tx_hash, event_index)
-);
-
-CREATE INDEX IF NOT EXISTS idx_chain_events_cheque_hex ON chain_events(cheque_id_hex);
-
--- 15. Anchor Txs
-CREATE TABLE IF NOT EXISTS anchor_txs (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  cheque_id UUID REFERENCES cheques(id) ON DELETE CASCADE,
-  anchor_provider VARCHAR(64) NOT NULL,
-  tx_type VARCHAR(32) NOT NULL CHECK (tx_type IN ('DEPOSIT', 'WITHDRAWAL')),
-  stellar_tx_id VARCHAR(64),
-  external_tx_id VARCHAR(255),
-  amount NUMERIC(20, 7) NOT NULL,
-  asset_code VARCHAR(12) NOT NULL,
-  status VARCHAR(32) NOT NULL,
-  raw_details JSONB,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_anchor_txs_cheque_id ON anchor_txs(cheque_id);
-
--- 16. Reconciliation View (Comparing Off-Chain State with Chain Events)
-CREATE OR REPLACE VIEW reconciliation_view AS
-WITH latest_chain_events AS (
-  SELECT DISTINCT ON (cheque_id_hex)
-    cheque_id_hex,
-    topic AS last_chain_event,
-    ledger AS last_chain_ledger,
-    tx_hash AS last_chain_tx_hash,
-    created_at AS last_event_at
-  FROM chain_events
-  ORDER BY cheque_id_hex, ledger DESC, event_index DESC
-)
-SELECT
-  c.id AS cheque_id,
-  c.public_code,
-  c.state AS offchain_state,
-  lce.last_chain_event,
-  lce.last_chain_ledger,
-  lce.last_chain_tx_hash,
-  CASE
-    -- State matching logic:
-    -- DRAFT, PENDING_FUNDING: not yet on-chain
-    WHEN c.state IN ('DRAFT', 'PENDING_FUNDING') AND lce.last_chain_event IS NULL THEN TRUE
-    -- ACTIVE: on-chain 'created' or 'unlocked' or 'vetoed'
-    WHEN c.state = 'ACTIVE' AND lce.last_chain_event IN ('created', 'unlocked', 'vetoed') THEN TRUE
-    -- CLAIMING / AUTHORIZED: on-chain 'locked'
-    WHEN c.state IN ('CLAIMING', 'AUTHORIZED') AND lce.last_chain_event = 'locked' THEN TRUE
-    -- SETTLING / SETTLED: on-chain 'redeemed'
-    WHEN c.state IN ('SETTLING', 'SETTLED') AND lce.last_chain_event = 'redeemed' THEN TRUE
-    -- CANCELLED: on-chain 'cancelled'
-    WHEN c.state = 'CANCELLED' AND lce.last_chain_event = 'cancelled' THEN TRUE
-    -- REFUNDING / REFUNDED: on-chain 'refunded'
-    WHEN c.state IN ('REFUNDING', 'REFUNDED') AND lce.last_chain_event = 'refunded' THEN TRUE
-    ELSE FALSE
-  END AS is_reconciled,
-  CASE
-    WHEN c.state IN ('DRAFT', 'PENDING_FUNDING') AND lce.last_chain_event IS NOT NULL
-      THEN 'Cheque is draft/pending off-chain but event already exists on chain'
-    WHEN c.state = 'ACTIVE' AND lce.last_chain_event IS NULL
-      THEN 'Cheque is active off-chain but no created event found on chain'
-    WHEN c.state = 'SETTLED' AND lce.last_chain_event != 'redeemed'
-      THEN 'Cheque marked settled off-chain but chain event is not redeemed'
-    WHEN c.state = 'REFUNDED' AND lce.last_chain_event != 'refunded'
-      THEN 'Cheque marked refunded off-chain but chain event is not refunded'
-    WHEN c.state = 'CANCELLED' AND lce.last_chain_event != 'cancelled'
-      THEN 'Cheque marked cancelled off-chain but chain event is not cancelled'
-    ELSE 'OK'
-  END AS reconciliation_status
-FROM cheques c
-LEFT JOIN latest_chain_events lce
-  ON replace(c.id::text, '-', '') = lce.cheque_id_hex
-  OR lce.cheque_id_hex = encode(digest(c.id::text, 'sha256'), 'hex');
+-- Recipient contact is no longer collected: the claim link is the key.
+ALTER TABLE cheques ALTER COLUMN payee_contact_type DROP NOT NULL;
+ALTER TABLE cheques ALTER COLUMN payee_contact DROP NOT NULL;
 
 -- 9. Multi-corridor upgrade (idempotent). Existing rows become Ghana/GHS cheques.
 DO $$
@@ -329,6 +246,8 @@ BEGIN
   END IF;
 END $$;
 
+ALTER TABLE cheques ADD COLUMN IF NOT EXISTS signature TEXT;
+ALTER TABLE cheques ADD COLUMN IF NOT EXISTS funder_address VARCHAR(56);
 ALTER TABLE cheques ADD COLUMN IF NOT EXISTS corridor VARCHAR(2) NOT NULL DEFAULT 'GH';
 ALTER TABLE cheques DROP CONSTRAINT IF EXISTS cheques_corridor_check;
 ALTER TABLE cheques ADD CONSTRAINT cheques_corridor_check CHECK (corridor IN ('GH', 'NG', 'US'));
