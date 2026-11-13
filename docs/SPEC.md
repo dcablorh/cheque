@@ -186,7 +186,7 @@ interface SettlementAdapter {
 
 ## 9. Data model (Postgres)
 - `users(id, phone, name, status, kyc_level, created_at)`
-- `cheques(id, public_code, claim_token_hash, sender_id, payee_name, payee_phone_e164, face_amount_ghs_minor, fee_minor, note, state, expires_at, quote_id, usdc_amount_stroops, fx_rate, version, created_at, updated_at)`
+- `cheques(id, public_code, claim_token_hash, sender_id, payee_name, payee_phone_e164, face_amount_minor, fee_minor, note, state, expires_at, quote_id, usdc_amount_stroops, fx_rate, version, created_at, updated_at)`
 - `funding(id, cheque_id, method, status, provider_ref, amount, created_at)`
 - `claim_sessions(id, cheque_id, otp_hash, attempts, verified_at, expires_at, device_fp)`
 - `destinations(id, cheque_id, type, network, account_ref, account_name, verified_name_match)`

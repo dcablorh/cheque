@@ -10,14 +10,15 @@
     "dev:api": "pnpm --filter @cheque/api dev",
     "dev:web": "pnpm --filter @cheque/web dev",
     "bootstrap:testnet": "tsx scripts/bootstrap-testnet.ts",
+    "build:contract": "cargo build --release --target wasm32v1-none --manifest-path contract/Cargo.toml -p cheque-contract",
     "deploy:contract": "tsx scripts/deploy-contract.ts",
-    "e2e:cheque": "tsx scripts/e2e-cheque-flow.ts",
-    "e2e:refund": "tsx scripts/e2e-refund-flow.ts",
+    "e2e:contract": "tsx scripts/e2e-contract-flow.ts",
+    "e2e:anchor": "tsx scripts/e2e-anchor-leg.ts",
     "test:integration": "tsx scripts/testnet-integration-acceptance.ts",
     "lint": "pnpm -r run lint"
   },
   "devDependencies": {
-    "@stellar/stellar-sdk": "^13.0.0",
+    "@stellar/stellar-sdk": "^17.2.1",
     "@types/node": "^20.17.0",
     "dotenv": "^16.4.5",
     "tsx": "^4.19.2",

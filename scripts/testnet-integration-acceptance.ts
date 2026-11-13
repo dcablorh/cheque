@@ -138,7 +138,7 @@ async function main() {
   dummyTx.sign(funderKeypair);
 
   const signedXdr = dummyTx.toXDR();
-  const txHash = dummyTx.hash().toString('hex');
+  const txHash = Buffer.from(dummyTx.hash()).toString('hex');
 
   // Step 3a: Store pre-submission state BEFORE sending (critical idempotency rule)
   await store.recordBeforeSend({

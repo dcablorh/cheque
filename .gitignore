@@ -17,3 +17,7 @@ Thumbs.db
 coverage/
 .turbo/
 *.tsbuildinfo
+
+# Rust / Soroban build output
+contract/target/
+contract/cheque/test_snapshots/

@@ -45,5 +45,5 @@ jobs:
           targets: wasm32-unknown-unknown
 
       - name: Run contract unit tests
-        working-directory: contracts
+        working-directory: contract
         run: cargo test --verbose

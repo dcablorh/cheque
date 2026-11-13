@@ -195,7 +195,7 @@ SMS fallback provider for OTP delivery failures.
 9. Data model (Postgres)
 users(id, phone, name, status, kyc_level, created_at)
 cheques(id, public_code, claim_token_hash, sender_id, payee_name,
-        payee_phone_e164, face_amount_ghs_minor, fee_minor, note,
+        payee_phone_e164, face_amount_minor, fee_minor, note,
         state, expires_at, quote_id, usdc_amount_stroops, fx_rate,
         version, created_at, updated_at)
 funding(id, cheque_id, method, status, provider_ref, amount, created_at)
