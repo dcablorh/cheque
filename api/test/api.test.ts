@@ -31,7 +31,7 @@ describe('Apps/API Authentication & Webhooks Integration Tests', () => {
     expect(body.database).toBe('connected');
   });
 
-  describe('Sender Auth Routes (/auth/otp/*, /auth/refresh, /auth/pin/*)', () => {
+  describe('Sender Auth Routes (/auth/otp/*, /auth/refresh)', () => {
     // Generate unique phone numbers for test run isolation
     const randomSuffix = Math.floor(100000 + Math.random() * 900000);
     const testPhone = `0241${randomSuffix}`; // MTN Ghana number
@@ -148,38 +148,6 @@ describe('Apps/API Authentication & Webhooks Integration Tests', () => {
       expect(refreshBody.accessToken).toBeDefined();
       expect(refreshBody.refreshToken).toBeDefined();
       expect(refreshBody.refreshToken).not.toBe(body.refreshToken); // Must be rotated!
-
-      // Setting and verifying PIN
-      const pinSetRes = await app.inject({
-        method: 'POST',
-        url: '/auth/pin/set',
-        payload: {
-          userId: body.user.id,
-          pin: '1234',
-        },
-      });
-      expect(pinSetRes.statusCode).toBe(200);
-
-      const pinVerifyRes = await app.inject({
-        method: 'POST',
-        url: '/auth/pin/verify',
-        payload: {
-          userId: body.user.id,
-          pin: '1234',
-        },
-      });
-      expect(pinVerifyRes.statusCode).toBe(200);
-      expect(JSON.parse(pinVerifyRes.body).verified).toBe(true);
-
-      const pinVerifyWrong = await app.inject({
-        method: 'POST',
-        url: '/auth/pin/verify',
-        payload: {
-          userId: body.user.id,
-          pin: '9999',
-        },
-      });
-      expect(pinVerifyWrong.statusCode).toBe(401);
     });
   });
 

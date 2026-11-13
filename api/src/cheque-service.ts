@@ -4,21 +4,18 @@ import type { Pool } from 'pg';
 import {
   CreateChequeSchema,
   RedeemChequeSchema,
-  OtpVerifySchema,
   decimalToMinor,
   minorToDecimalString,
   convertFiatMinorToStroops,
   convertStroopsToFiatMinor,
   getCorridor,
   parseEnabledCorridors,
-  validatePayeePhone,
   validateFaceAmount,
   validatePayoutDestination,
   CORRIDORS,
   type FiatCurrency,
   generateClaimToken,
   hashClaimToken,
-  generateSessionToken,
   transition,
   withTransaction,
   mapChequeRow,
@@ -31,9 +28,10 @@ import {
   type ChequeState,
   type OutboxItem,
 } from '@cheque/core';
-import type { SenderAuthService, PhoneOtpService, WhatsAppClient, SmsClient, EmailClient } from '@cheque/notify';
+import type { SenderAuthService } from '@cheque/notify';
 import type { Env } from '@cheque/shared';
 import { logger } from '@cheque/shared';
+import { deriveChequeIdHex, type ChequeContractClient } from '@cheque/chain';
 import type { ChainOperationPayload } from './chain-handler.js';
 
 /** Contract defaults (docs/CONTRACT.md): cheques >= 50 USDC wait 15 min before redeem. */
@@ -41,7 +39,6 @@ const DELAY_THRESHOLD_STROOPS = 500_000_000n;
 const DELAY_SECS = 900;
 const MIN_STROOPS = 10_000_000n; // contract min_amount: 1 USDC
 const LOCK_SECS = 600;
-const CLAIM_SESSION_TTL_MS = 30 * 60 * 1000;
 
 const CHEQUE_COLS = `
   c.id,
@@ -49,13 +46,13 @@ const CHEQUE_COLS = `
   c.claim_token_hash AS "claimTokenHash",
   c.sender_id AS "senderId",
   c.payee_name AS "payeeName",
-  c.payee_contact_type AS "payeeContactType",
-  c.payee_contact AS "payeeContactValue",
   c.corridor,
   c.currency,
   c.face_amount_minor::float8 AS "faceAmountMinor",
   c.fee_minor::float8 AS "feeMinor",
   c.note,
+  c.signature,
+  c.funder_address AS "funderAddress",
   c.state,
   c.expires_at AS "expiresAt",
   c.quote_id AS "quoteId",
@@ -86,12 +83,10 @@ export interface ChequeServiceDeps {
   pool: Pool;
   env: Env;
   authService: SenderAuthService;
-  otpService: PhoneOtpService;
-  whatsAppClient?: WhatsAppClient;
-  smsClient?: SmsClient;
-  emailClient?: EmailClient;
   /** Public key of the account that escrows funds; refunds on-chain go back to it. */
   fundingPublicKey?: string;
+  /** Builds and relays wallet-signed deposits and cancels. */
+  chainClient?: ChequeContractClient;
   chainEnabled: boolean;
 }
 
@@ -113,6 +108,7 @@ function publicView(c: Cheque, senderName?: string | null) {
     corridor: c.corridor,
     ...amountView(c.faceAmountMinor, c.currency),
     note: c.note ?? null,
+    signature: c.signature ?? null,
     expiresAt: c.expiresAt,
     createdAt: c.createdAt,
   };
@@ -169,6 +165,19 @@ async function enqueue(
   );
 }
 
+/** Funds are on-chain: PENDING_FUNDING -> ACTIVE (idempotent). */
+async function activateFunded(pool: Pool, cheque: Cheque, source: string): Promise<void> {
+  await moveIfStill(pool, cheque.id, 'PENDING_FUNDING', 'ACTIVE', {
+    ledgerTx: createFundingTransaction({
+      chequeId: cheque.id,
+      faceAmountMinor: cheque.faceAmountMinor,
+      feeMinor: cheque.feeMinor,
+      currency: cheque.currency,
+    }),
+    auditPayload: { source },
+  });
+}
+
 /** Reflects confirmed on-chain operations into the off-chain cheque state machine. */
 export function createChainAppliedHook(pool: Pool) {
   return async function onApplied(item: OutboxItem, payload: ChainOperationPayload): Promise<void> {
@@ -178,15 +187,7 @@ export function createChainAppliedHook(pool: Pool) {
 
     switch (payload.operation) {
       case 'create_cheque':
-        await moveIfStill(pool, chequeId, 'PENDING_FUNDING', 'ACTIVE', {
-          ledgerTx: createFundingTransaction({
-            chequeId,
-            faceAmountMinor: cheque.faceAmountMinor,
-            feeMinor: cheque.feeMinor,
-            currency: cheque.currency,
-          }),
-          auditPayload: { source: 'chain:create_cheque' },
-        });
+        await activateFunded(pool, cheque, 'chain:create_cheque');
         break;
 
       case 'lock': {
@@ -240,22 +241,13 @@ export function createChainAppliedHook(pool: Pool) {
   };
 }
 
-/** Periodic housekeeping: expire unclaimed cheques and release stale claim attempts. */
+/** Periodic housekeeping: expire unclaimed cheques. */
 export function startSweeper(pool: Pool, intervalMs = 30_000): () => void {
   let running = false;
   const tick = async () => {
     if (running) return;
     running = true;
     try {
-      const stale = await pool.query(
-        `SELECT id FROM cheques WHERE state = 'CLAIMING' AND updated_at < NOW() - INTERVAL '30 minutes' LIMIT 50`
-      );
-      for (const r of stale.rows) {
-        await moveIfStill(pool, r.id, 'CLAIMING', 'ACTIVE', { auditPayload: { reason: 'claim session expired' } }).catch(
-          (e) => logger.warn(`[sweeper] release ${r.id}: ${e.message}`)
-        );
-      }
-
       const due = await pool.query(
         `SELECT id, expires_at FROM cheques WHERE state = 'ACTIVE' AND expires_at <= NOW() LIMIT 50`
       );
@@ -326,7 +318,7 @@ async function hasUsdcTrustline(env: Env, address: string): Promise<boolean | 'u
 }
 
 export function registerChequeRoutes(deps: ChequeServiceDeps): void {
-  const { app, pool, env, authService, otpService } = deps;
+  const { app, pool, env, authService } = deps;
   const enabledCorridors = parseEnabledCorridors(env.ENABLED_CORRIDORS);
 
   const requireSender = (request: FastifyRequest, reply: FastifyReply): string | null => {
@@ -355,7 +347,11 @@ export function registerChequeRoutes(deps: ChequeServiceDeps): void {
   app.get('/config', async () => ({
     network: env.STELLAR_NETWORK,
     chainEnabled: deps.chainEnabled,
+    walletFunding: deps.chainEnabled && !!deps.chainClient,
     feeBps: env.FEE_BPS,
+    usdc: { code: env.USDC_ASSET_CODE, issuer: env.USDC_ISSUER_ADDRESS },
+    horizonUrl: env.STELLAR_HORIZON_URL,
+    networkPassphrase: env.STELLAR_NETWORK_PASSPHRASE,
     corridors: enabledCorridors.map((code) => {
       const c = CORRIDORS[code];
       return {
@@ -366,6 +362,8 @@ export function registerChequeRoutes(deps: ChequeServiceDeps): void {
         maxAmount: c.maxAmount,
         dialCode: c.dialCode,
         payoutMethods: c.payoutMethods,
+        /** Units of this currency per 1 USDC, for the deposit converter. */
+        perUsdc: fxPerUsd(env, c.currency),
         minAmountUsdc: minorToDecimalString(
           convertStroopsToFiatMinor(MIN_STROOPS, fxPerUsd(env, c.currency), 'ROUND_UP')
         ),
@@ -403,13 +401,6 @@ export function registerChequeRoutes(deps: ChequeServiceDeps): void {
     const amountError = validateFaceAmount(corridor, amount);
     if (amountError) return reply.badRequest(amountError);
 
-    if (input.payeeContact.type === 'PHONE') {
-      const phoneError = validatePayeePhone(corridor, input.payeeContact.value);
-      if (phoneError) return reply.badRequest(phoneError);
-    } else if (!corridor.allowEmailPayee) {
-      return reply.badRequest(`Payee email is not supported for ${corridor.name} cheques; use a phone number.`);
-    }
-
     const face = decimalToMinor(amount);
     const fee = Math.floor((face * env.FEE_BPS) / 10_000);
     const rate = fxPerUsd(env, currency);
@@ -419,24 +410,23 @@ export function registerChequeRoutes(deps: ChequeServiceDeps): void {
       return reply.badRequest(`Minimum ${currency} cheque amount is ${minorToDecimalString(minFace)}`);
     }
 
-    const { rawToken, claimTokenHash, publicCode } = generateClaimToken();
+    const generated = generateClaimToken();
+    const { rawToken, claimTokenHash } = generated;
+    const publicCode = input.publicCode ?? generated.publicCode;
     const chequeId = crypto.randomUUID();
     const expiresAt = new Date(Date.now() + input.expiryHours * 3600 * 1000);
 
     await withTransaction(async (client) => {
       await client.query(
-        `INSERT INTO cheques (id, public_code, claim_token_hash, sender_id, payee_name, payee_contact_type,
-            payee_contact, face_amount_minor, fee_minor, note, state, expires_at, usdc_amount_stroops, fx_rate,
-            corridor, currency)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'PENDING_FUNDING',$11,$12,$13,$14,$15)`,
+        `INSERT INTO cheques (id, public_code, claim_token_hash, sender_id, payee_name, face_amount_minor, fee_minor, note, state, expires_at, usdc_amount_stroops, fx_rate,
+            corridor, currency, signature, funder_address)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'PENDING_FUNDING',$9,$10,$11,$12,$13,$14,$15)`,
         [
           chequeId,
           publicCode,
           claimTokenHash,
           userId,
           input.payeeName,
-          input.payeeContact.type,
-          input.payeeContact.value,
           face,
           fee,
           input.note ?? null,
@@ -445,18 +435,21 @@ export function registerChequeRoutes(deps: ChequeServiceDeps): void {
           rate,
           corridor.code,
           currency,
+          input.signature ?? null,
+          input.funderAddress ?? null,
         ]
       );
       await client.query(
         `INSERT INTO fundings (cheque_id, method, status, amount_minor, provider_ref)
-         VALUES ($1, 'USDC', 'PENDING', $2, 'platform-escrow')`,
-        [chequeId, face + fee]
+         VALUES ($1, 'USDC', 'PENDING', $2, $3)`,
+        [chequeId, face + fee, input.funderAddress ? 'wallet' : 'platform-escrow']
       );
       await client.query(
         `INSERT INTO events (cheque_id, event_type, to_state, actor, payload)
          VALUES ($1, 'CHEQUE_CREATED', 'PENDING_FUNDING', 'SENDER', $2::jsonb)`,
         [chequeId, JSON.stringify({ corridor: corridor.code, currency })]
       );
+      if (input.funderAddress) return; // the sender's wallet deposits; see /cheques/:id/tx/*
       const payload: ChainOperationPayload = {
         operation: 'create_cheque',
         refundTo: deps.fundingPublicKey!,
@@ -474,6 +467,8 @@ export function registerChequeRoutes(deps: ChequeServiceDeps): void {
       id: chequeId,
       publicCode,
       state: 'PENDING_FUNDING',
+      fundingMode: input.funderAddress ? 'WALLET' : 'PLATFORM',
+      usdcAmountStroops: stroops.toString(),
       corridor: corridor.code,
       ...amountView(face, currency),
       feeMinor: fee,
@@ -501,10 +496,11 @@ export function registerChequeRoutes(deps: ChequeServiceDeps): void {
           state: c.state,
           corridor: c.corridor,
           payeeName: c.payeeName,
-          payeeContact: c.payeeContact,
           ...amountView(c.faceAmountMinor, c.currency),
           feeMinor: c.feeMinor,
           note: c.note ?? null,
+          signature: c.signature ?? null,
+          funderAddress: c.funderAddress ?? null,
           expiresAt: c.expiresAt,
           createdAt: c.createdAt,
         };
@@ -534,11 +530,12 @@ export function registerChequeRoutes(deps: ChequeServiceDeps): void {
       state: c.state,
       corridor: c.corridor,
       payeeName: c.payeeName,
-      payeeContact: c.payeeContact,
       ...amountView(c.faceAmountMinor, c.currency),
       feeMinor: c.feeMinor,
       usdcAmountStroops: c.usdcAmountStroops ?? null,
+      funderAddress: c.funderAddress ?? null,
       note: c.note ?? null,
+      signature: c.signature ?? null,
       expiresAt: c.expiresAt,
       createdAt: c.createdAt,
       events: events.rows,
@@ -553,6 +550,9 @@ export function registerChequeRoutes(deps: ChequeServiceDeps): void {
     if (!c || c.senderId !== userId) return reply.notFound('Cheque not found');
     if (c.state !== 'ACTIVE') {
       return reply.conflict(`Only an active cheque can be cancelled (currently ${c.state}).`);
+    }
+    if (c.funderAddress) {
+      return reply.conflict('This cheque was funded from your wallet; cancel it by signing with that wallet.');
     }
     try {
       await transition({
@@ -571,6 +571,92 @@ export function registerChequeRoutes(deps: ChequeServiceDeps): void {
     return { id: c.id, state: 'CANCELLED' };
   });
 
+  // ---- Wallet-signed deposits and cancels --------------------------------------------------
+
+  const walletTxOp = { create: 'create_cheque', cancel: 'cancel' } as const;
+
+  app.post<{ Params: { id: string }; Body: { op?: string } }>('/cheques/:id/tx/prepare', async (request, reply) => {
+    const userId = requireSender(request, reply);
+    if (!userId) return;
+    if (!deps.chainClient) return reply.serviceUnavailable('Chain settlement is not configured.');
+    const op = request.body?.op as keyof typeof walletTxOp;
+    if (!(op in walletTxOp)) return reply.badRequest('op must be "create" or "cancel".');
+    const c = await loadById(pool, request.params.id);
+    if (!c || c.senderId !== userId) return reply.notFound('Cheque not found');
+    if (!c.funderAddress) return reply.conflict('This cheque is not funded from a wallet.');
+    const need: ChequeState = op === 'create' ? 'PENDING_FUNDING' : 'ACTIVE';
+    if (c.state !== need) return reply.conflict(`Cheque is ${c.state}; expected ${need}.`);
+    try {
+      const idHex = deriveChequeIdHex(c.id);
+      return op === 'create'
+        ? await deps.chainClient.prepareCreateCheque({
+            funderPublicKey: c.funderAddress,
+            chequeIdHex: idHex,
+            refundTo: c.funderAddress,
+            amountStroops: BigInt(c.usdcAmountStroops ?? 0),
+            expiresAt: Math.floor(c.expiresAt.getTime() / 1000),
+          })
+        : await deps.chainClient.prepareCancel(c.funderAddress, idHex);
+    } catch (e) {
+      return reply.badRequest((e as Error).message);
+    }
+  });
+
+  app.post<{ Params: { id: string }; Body: { op?: string; signedXdr?: string } }>(
+    '/cheques/:id/tx/submit',
+    async (request, reply) => {
+      const userId = requireSender(request, reply);
+      if (!userId) return;
+      if (!deps.chainClient) return reply.serviceUnavailable('Chain settlement is not configured.');
+      const op = request.body?.op as keyof typeof walletTxOp;
+      const signedXdr = request.body?.signedXdr;
+      if (!(op in walletTxOp) || typeof signedXdr !== 'string') return reply.badRequest('op and signedXdr are required.');
+      const c = await loadById(pool, request.params.id);
+      if (!c || c.senderId !== userId) return reply.notFound('Cheque not found');
+      if (!c.funderAddress) return reply.conflict('This cheque is not funded from a wallet.');
+      const need: ChequeState = op === 'create' ? 'PENDING_FUNDING' : 'ACTIVE';
+      if (c.state !== need) return reply.conflict(`Cheque is ${c.state}; expected ${need}.`);
+
+      const idHex = deriveChequeIdHex(c.id);
+      let txHash: string;
+      let ledger: number;
+      try {
+        ({ txHash, ledger } = await deps.chainClient.submitSignedTransaction(signedXdr, {
+          source: c.funderAddress,
+          functionName: walletTxOp[op],
+        }));
+      } catch (e) {
+        return reply.badGateway((e as Error).message);
+      }
+      await pool
+        .query(
+          `INSERT INTO chain_txs (cheque_id, operation, tx_hash, signed_xdr, status, ledger)
+           VALUES ($1, $2, $3, $4, 'CONFIRMED', $5) ON CONFLICT DO NOTHING`,
+          [c.id, op === 'create' ? 'create' : 'cancel', txHash, signedXdr, ledger]
+        )
+        .catch((e) => logger.warn(`[wallet] chain_txs insert: ${e.message}`));
+
+      // Trust the chain, not the client: confirm the contract now holds what we expect.
+      const onChain = await deps.chainClient.getCheque(idHex);
+      if (op === 'create') {
+        if (onChain.funder !== c.funderAddress || BigInt(onChain.amount) !== BigInt(c.usdcAmountStroops ?? 0)) {
+          return reply.conflict('On-chain deposit does not match this cheque.');
+        }
+        await activateFunded(pool, c, 'wallet:create_cheque');
+        return { state: 'ACTIVE', txHash };
+      }
+      await transition({
+        chequeId: c.id,
+        fromState: 'ACTIVE',
+        toState: 'CANCELLED',
+        actor: 'SENDER',
+        expectedVersion: c.version,
+        auditPayload: { source: 'wallet:cancel', txHash },
+      });
+      return { state: 'CANCELLED', txHash };
+    }
+  );
+
   // ---- Recipient (claim link; no account) ---------------------------------------------------
 
   app.get<{ Params: { token: string } }>('/claim/:token', async (request, reply) => {
@@ -579,86 +665,12 @@ export function registerChequeRoutes(deps: ChequeServiceDeps): void {
     return publicView(found.cheque, found.senderName);
   });
 
-  app.post<{ Params: { token: string } }>('/claim/:token/otp', async (request, reply) => {
-    const found = await loadByToken(pool, request.params.token);
-    if (!found) return reply.notFound('This cheque link is not valid.');
-    const { cheque } = found;
-    if (cheque.state !== 'ACTIVE' && cheque.state !== 'CLAIMING') {
-      return reply.conflict(`This cheque is ${cheque.state.toLowerCase().replace('_', ' ')} and cannot be claimed.`);
-    }
-    if (cheque.expiresAt.getTime() <= Date.now()) return reply.conflict('This cheque has expired.');
-
-    let moved = false;
-    if (cheque.state === 'ACTIVE') {
-      try {
-        await transition({
-          chequeId: cheque.id,
-          fromState: 'ACTIVE',
-          toState: 'CLAIMING',
-          actor: 'RECIPIENT',
-          expectedVersion: cheque.version,
-        });
-        moved = true;
-      } catch (e) {
-        return reply.conflict((e as Error).message);
-      }
-    }
-
-    try {
-      const res = await otpService.sendContactOtp({
-        contact: cheque.payeeContact,
-        whatsAppClient: deps.whatsAppClient,
-        smsClient: deps.smsClient,
-        emailClient: deps.emailClient,
-        ipAddress: request.ip,
-      });
-      return { sent: true, channel: res.channel };
-    } catch (e) {
-      if (moved) await moveIfStill(pool, cheque.id, 'CLAIMING', 'ACTIVE').catch(() => undefined);
-      const msg = (e as Error).message;
-      if (msg.includes('Too many') || msg.includes('Please wait')) return reply.tooManyRequests(msg);
-      logger.warn(`[claim] OTP delivery failed for ${cheque.id}: ${msg}`);
-      return reply.badGateway('Could not deliver the verification code. Please try again.');
-    }
-  });
-
-  app.post<{ Params: { token: string } }>('/claim/:token/verify', async (request, reply) => {
-    const body = OtpVerifySchema.safeParse(request.body);
-    if (!body.success) return reply.badRequest(body.error.issues.map((i) => i.message).join('; '));
-    const found = await loadByToken(pool, request.params.token);
-    if (!found) return reply.notFound('This cheque link is not valid.');
-    const { cheque } = found;
-    if (cheque.state !== 'CLAIMING') return reply.conflict('Request a verification code first.');
-
-    let ok = false;
-    try {
-      ok = await otpService.verifyContactOtp(cheque.payeeContact, body.data.otp);
-    } catch (e) {
-      return reply.badRequest((e as Error).message);
-    }
-    if (!ok) return reply.badRequest('That code is not correct.');
-
-    const sessionToken = generateSessionToken();
-    await pool.query(
-      `INSERT INTO claim_sessions (cheque_id, otp_hash, verified_at, expires_at, device_fp, session_token)
-       VALUES ($1, 'verified', NOW(), $2, $3, $4)`,
-      [
-        cheque.id,
-        new Date(Date.now() + CLAIM_SESSION_TTL_MS),
-        body.data.deviceFp ?? null,
-        hashClaimToken(sessionToken),
-      ]
-    );
-    return { sessionToken, expiresInSeconds: CLAIM_SESSION_TTL_MS / 1000 };
-  });
-
-  app.post<{ Params: { token: string }; Body: { sessionToken?: string } }>(
+  app.post<{ Params: { token: string } }>(
     '/claim/:token/redeem',
     async (request, reply) => {
       const body = RedeemChequeSchema.safeParse(request.body);
-      const sessionToken = request.body?.sessionToken;
-      if (!body.success || typeof sessionToken !== 'string') {
-        return reply.badRequest(body.success ? 'Missing sessionToken' : body.error.issues.map((i) => i.message).join('; '));
+      if (!body.success) {
+        return reply.badRequest(body.error.issues.map((i) => i.message).join('; '));
       }
       const { destination, idempotencyKey } = body.data;
 
@@ -678,18 +690,12 @@ export function registerChequeRoutes(deps: ChequeServiceDeps): void {
         });
       }
 
-      const session = await pool.query(
-        `SELECT id FROM claim_sessions
-          WHERE cheque_id = $1 AND session_token = $2 AND verified_at IS NOT NULL AND expires_at > NOW()`,
-        [cheque.id, hashClaimToken(sessionToken)]
-      );
-      if (session.rowCount === 0) return reply.unauthorized('Your verification expired. Please verify again.');
-
       // Idempotent replay: same key already created the payout.
       const existing = await pool.query(`SELECT status FROM payouts WHERE idempotency_key = $1`, [idempotencyKey]);
       if (existing.rowCount) return reply.send({ state: cheque.state, replay: true });
 
-      if (cheque.state !== 'CLAIMING') return reply.conflict(`Cheque is ${cheque.state}; it can't be redeemed now.`);
+      if (cheque.state !== 'ACTIVE') return reply.conflict(`Cheque is ${cheque.state.toLowerCase().replace('_', ' ')}; it can't be redeemed now.`);
+      if (cheque.expiresAt.getTime() <= Date.now()) return reply.conflict('This cheque has expired.');
 
       const trustline = await hasUsdcTrustline(env, destination.accountRef);
       if (trustline === false) {
@@ -712,7 +718,7 @@ export function registerChequeRoutes(deps: ChequeServiceDeps): void {
           await transition(
             {
               chequeId: cheque.id,
-              fromState: 'CLAIMING',
+              fromState: 'ACTIVE',
               toState: 'AUTHORIZED',
               actor: 'RECIPIENT',
               expectedVersion: cheque.version,
