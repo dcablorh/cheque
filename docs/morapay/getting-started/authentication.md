@@ -1,0 +1,356 @@
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.morapay.io/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# Authentication
+
+> Morapay Merchant API v1 uses HMAC-signed requests with Morapay API keys.
+
+## API key pairs
+
+| Key | Prefix | Where it lives |
+| - | - | - |
+| Public key | `pk_test_*` / `pk_live_*` | `Morapay-Key` header |
+| Secret key | `sk_test_*` / `sk_live_*` | Server env only; used to sign |
+
+Create pairs in **Dashboard → Developers → API keys**. \
+Each key is pinned to **TEST** or **LIVE** at creation time. \
+The SDK infers environment from the key. Do not send `x-merchant-environment` with API keys.
+
+## Required headers
+
+| Header | Value |
+| - | - |
+| `Morapay-Key` | Your public key `pk_*` |
+| `Morapay-Timestamp` | Unix seconds |
+| `Morapay-Signature` | HMAC-SHA256 digest prefixed with `v1=` |
+
+The Morapay API validates signatures on every request.\
+The canonical payload is:
+
+```
+{timestamp}.{METHOD}.{pathWithQuery}.{sha256HexBody}
+```
+
+* **Timestamp window:** ±300 seconds
+* **Method:** uppercase, e.g. `GET`, `POST`
+* **Path:** must start with `/` and include the query string exactly as sent, e.g. `/api/v1/merchant/links?page=1`
+* **Body hash:** SHA-256 hex of the **raw** request body. Use an empty string for GET and DELETE with no body. The hash of an empty body is `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`.
+
+## Recommended SDK
+
+```typescript theme={null}
+import { Morapay } from "@morapay/sdk";
+
+const morapay = new Morapay({
+  publicKey: process.env.MORAPAY_PUBLIC_KEY!,
+  secretKey: process.env.MORAPAY_SECRET_KEY!,
+});
+```
+
+Signing is automatic on every `morapay.*` call to `/api/v1/merchant/*`.
+
+## Manual signing
+
+If you cannot use the SDK, implement the same algorithm:
+
+1. Hash the raw request body with SHA-256 and encode as lowercase hex.
+2. Build the canonical string: `{timestamp}.{METHOD}.{pathWithQuery}.{bodySha256Hex}`.
+3. Derive the signing key: SHA-256 digest of the UTF-8 secret `sk_*` as **32 raw bytes** not hex.
+4. HMAC-SHA256 the canonical string with that key; prefix the hex digest with `v1=`.
+
+Send the same raw body bytes you hashed. \
+Do not re-serialize JSON after signing.
+
+```javascript Node.js theme={null}
+import { createHash, createHmac } from "node:crypto";
+
+function sha256Hex(input) {
+  return createHash("sha256").update(input, "utf8").digest("hex");
+}
+
+function signingKey(secret) {
+  return createHash("sha256").update(secret.trim(), "utf8").digest();
+}
+
+function signMorapayRequest({ publicKey, secret, method, pathWithQuery, rawBody = "" }) {
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const normalizedMethod = method.trim().toUpperCase();
+  const path = pathWithQuery.startsWith("/") ? pathWithQuery : `/${pathWithQuery}`;
+  const bodyHash = sha256Hex(rawBody);
+  const payload = `${timestamp}.${normalizedMethod}.${path}.${bodyHash}`;
+  const digest = createHmac("sha256", signingKey(secret)).update(payload, "utf8").digest("hex");
+
+  return {
+    "Morapay-Key": publicKey.trim(),
+    "Morapay-Timestamp": timestamp,
+    "Morapay-Signature": `v1=${digest}`,
+  };
+}
+
+// Example: GET /api/v1/merchant/qr
+const headers = signMorapayRequest({
+  publicKey: process.env.MORAPAY_PUBLIC_KEY,
+  secret: process.env.MORAPAY_SECRET_KEY,
+  method: "GET",
+  pathWithQuery: "/api/v1/merchant/qr",
+});
+
+const res = await fetch("https://api.morapay.io/api/v1/merchant/qr", { headers });
+console.log(await res.json());
+```
+
+```typescript TypeScript theme={null}
+import { createHash, createHmac } from "node:crypto";
+
+type SignParams = {
+  publicKey: string;
+  secret: string;
+  method: string;
+  pathWithQuery: string;
+  rawBody?: string;
+  timestamp?: string;
+};
+
+function sha256Hex(input: string): string {
+  return createHash("sha256").update(input, "utf8").digest("hex");
+}
+
+function signingKey(secret: string): Buffer {
+  return createHash("sha256").update(secret.trim(), "utf8").digest();
+}
+
+export function signMorapayRequest(params: SignParams): Record<string, string> {
+  const timestamp = params.timestamp ?? String(Math.floor(Date.now() / 1000));
+  const rawBody = params.rawBody ?? "";
+  const method = params.method.trim().toUpperCase();
+  const path = params.pathWithQuery.startsWith("/")
+    ? params.pathWithQuery
+    : `/${params.pathWithQuery}`;
+  const payload = `${timestamp}.${method}.${path}.${sha256Hex(rawBody)}`;
+  const digest = createHmac("sha256", signingKey(params.secret))
+    .update(payload, "utf8")
+    .digest("hex");
+
+  return {
+    "Morapay-Key": params.publicKey.trim(),
+    "Morapay-Timestamp": timestamp,
+    "Morapay-Signature": `v1=${digest}`,
+  };
+}
+
+// Example: POST /api/v1/merchant/links
+const body = JSON.stringify({ title: "Invoice #42", amount: 100, currency: "USD" });
+const headers = signMorapayRequest({
+  publicKey: process.env.MORAPAY_PUBLIC_KEY!,
+  secret: process.env.MORAPAY_SECRET_KEY!,
+  method: "POST",
+  pathWithQuery: "/api/v1/merchant/links",
+  rawBody: body,
+});
+
+const res = await fetch("https://api.morapay.io/api/v1/merchant/links", {
+  method: "POST",
+  headers: { ...headers, "Content-Type": "application/json" },
+  body,
+});
+```
+
+```python Python theme={null}
+import hashlib
+import hmac
+import json
+import os
+import time
+import urllib.request
+
+def sha256_hex(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+def signing_key(secret: str) -> bytes:
+    return hashlib.sha256(secret.strip().encode("utf-8")).digest()
+
+def sign_morapay_request(
+    *,
+    public_key: str,
+    secret: str,
+    method: str,
+    path_with_query: str,
+    raw_body: str = "",
+    timestamp: str | None = None,
+) -> dict[str, str]:
+    ts = timestamp or str(int(time.time()))
+    normalized_method = method.strip().upper()
+    path = path_with_query if path_with_query.startswith("/") else f"/{path_with_query}"
+    payload = f"{ts}.{normalized_method}.{path}.{sha256_hex(raw_body)}"
+    digest = hmac.new(
+        signing_key(secret),
+        payload.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+    return {
+        "Morapay-Key": public_key.strip(),
+        "Morapay-Timestamp": ts,
+        "Morapay-Signature": f"v1={digest}",
+    }
+
+# Example: POST /api/v1/merchant/links
+body = json.dumps({"title": "Invoice #42", "amount": 100, "currency": "USD"}, separators=(",", ":"))
+headers = sign_morapay_request(
+    public_key=os.environ["MORAPAY_PUBLIC_KEY"],
+    secret=os.environ["MORAPAY_SECRET_KEY"],
+    method="POST",
+    path_with_query="/api/v1/merchant/links",
+    raw_body=body,
+)
+
+req = urllib.request.Request(
+    "https://api.morapay.io/api/v1/merchant/links",
+    data=body.encode("utf-8"),
+    headers={**headers, "Content-Type": "application/json"},
+    method="POST",
+)
+with urllib.request.urlopen(req) as res:
+    print(res.read().decode("utf-8"))
+```
+
+```php PHP theme={null}
+<?php
+
+function sha256Hex(string $input): string {
+    return hash('sha256', $input);
+}
+
+function signingKey(string $secret): string {
+    return hash('sha256', trim($secret), true);
+}
+
+function signMorapayRequest(
+    string $publicKey,
+    string $secret,
+    string $method,
+    string $pathWithQuery,
+    string $rawBody = '',
+    ?string $timestamp = null
+): array {
+    $timestamp = $timestamp ?? (string) time();
+    $method = strtoupper(trim($method));
+    $path = str_starts_with($pathWithQuery, '/') ? $pathWithQuery : "/{$pathWithQuery}";
+    $payload = "{$timestamp}.{$method}.{$path}." . sha256Hex($rawBody);
+    $digest = hash_hmac('sha256', $payload, signingKey($secret));
+
+    return [
+        'Morapay-Key' => trim($publicKey),
+        'Morapay-Timestamp' => $timestamp,
+        'Morapay-Signature' => "v1={$digest}",
+    ];
+}
+
+// Example: GET /api/v1/merchant/qr
+$headers = signMorapayRequest(
+    getenv('MORAPAY_PUBLIC_KEY'),
+    getenv('MORAPAY_SECRET_KEY'),
+    'GET',
+    '/api/v1/merchant/qr'
+);
+
+$context = stream_context_create([
+    'http' => [
+        'method' => 'GET',
+        'header' => implode("\r\n", array_map(
+            fn ($k, $v) => "{$k}: {$v}",
+            array_keys($headers),
+            array_values($headers)
+        )),
+    ],
+]);
+
+echo file_get_contents('https://api.morapay.io/api/v1/merchant/qr', false, $context);
+```
+
+```csharp C# / .NET theme={null}
+using System.Net.Http;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+
+static byte[] Sha256Bytes(string input) =>
+    SHA256.HashData(Encoding.UTF8.GetBytes(input));
+
+static string Sha256Hex(string input) =>
+    Convert.ToHexString(Sha256Bytes(input)).ToLowerInvariant();
+
+static byte[] SigningKey(string secret) =>
+    SHA256.HashData(Encoding.UTF8.GetBytes(secret.Trim()));
+
+static Dictionary<string, string> SignMorapayRequest(
+    string publicKey,
+    string secret,
+    string method,
+    string pathWithQuery,
+    string rawBody = "",
+    string? timestamp = null)
+{
+    var ts = timestamp ?? DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString();
+    var normalizedMethod = method.Trim().ToUpperInvariant();
+    var path = pathWithQuery.StartsWith('/') ? pathWithQuery : $"/{pathWithQuery}";
+    var payload = $"{ts}.{normalizedMethod}.{path}.{Sha256Hex(rawBody)}";
+    var digest = HMACSHA256.HashData(SigningKey(secret), Encoding.UTF8.GetBytes(payload));
+
+    return new Dictionary<string, string>
+    {
+        ["Morapay-Key"] = publicKey.Trim(),
+        ["Morapay-Timestamp"] = ts,
+        ["Morapay-Signature"] = $"v1={Convert.ToHexString(digest).ToLowerInvariant()}",
+    };
+}
+
+// Example: POST /api/v1/merchant/links
+var body = JsonSerializer.Serialize(new { title = "Invoice #42", amount = 100, currency = "USD" });
+var headers = SignMorapayRequest(
+    Environment.GetEnvironmentVariable("MORAPAY_PUBLIC_KEY")!,
+    Environment.GetEnvironmentVariable("MORAPAY_SECRET_KEY")!,
+    "POST",
+    "/api/v1/merchant/links",
+    body);
+
+using var client = new HttpClient();
+using var request = new HttpRequestMessage(HttpMethod.Post, "https://api.morapay.io/api/v1/merchant/links");
+foreach (var (key, value) in headers) request.Headers.TryAddWithoutValidation(key, value);
+request.Content = new StringContent(body, Encoding.UTF8, "application/json");
+
+var response = await client.SendAsync(request);
+Console.WriteLine(await response.Content.ReadAsStringAsync());
+```
+
+### Verification checklist
+
+| Step | Common mistake |
+| - | - |
+| Body hash | Hashing pretty-printed JSON while sending compact JSON |
+| Path | Omitting `?query=params` or using the wrong host path |
+| Signing key | Using the raw `sk_*` string as the HMAC key instead of `SHA-256(sk_*)` bytes |
+| Timestamp | Clock drift beyond ±300 seconds |
+| Signature format | Sending bare hex without the `v1=` prefix |
+
+## Common auth errors
+
+| Code | HTTP | Meaning |
+| - | - | - |
+| `auth.keys.invalid` | 401 | Public key not found |
+| `auth.keys.expired` | 401 | Key past expiration |
+| `auth.signature.mismatch` | 401 | HMAC does not match |
+| `auth.signature.timestamp_expired` | 401 | Timestamp outside ±300s |
+| `auth.keys.origin_not_allowed` | 403 | Request origin not on key allowlist |
+
+> [!NOTE]
+>
+> Stuck on signature verification? Include your `requestId` from the `Morapay-Request-Id` response header when asking for help in the [Morapay Sandbox](https://sandbox.morapay.io).
+
+## Next step
+
+[Environments](https://docs.morapay.io/getting-started/environments.md). TEST vs LIVE, base URLs, and checkout hosts.
+
+
+This documentation is built and hosted on [Mintlify](https://mintlify.com), a developer documentation platform.

@@ -1,0 +1,63 @@
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.morapay.io/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# Banks & MoMo withdrawal
+
+> Supported withdrawal rails, mobile money operators, and bank catalogs.
+
+Merchant **withdrawals** and **disbursement batch** recipients settle to local rails.
+
+## Withdrawal rails
+
+| Rail | Country | Currency | Method | Bank code required |
+| - | - | - | - | - |
+| Ghana mobile money | GH | GHS | MOBILE MONEY | No |
+| Nigeria bank account | NG | NGN | BANK ACCOUNT | Yes |
+| Ghana bank account | GH | GHS | BANK ACCOUNT | Yes |
+
+### Ghana mobile money carriers
+
+| Carrier | Channel |
+| - | - |
+| MTN | 1 |
+| Telecel | 6 |
+| AT AirtelTigo | 7 |
+
+## Mobile money operators
+
+| Currency | Operator |
+| - | - |
+| GHS | MTN |
+| GHS | Telecel Vodafone |
+| GHS | AirtelTigo |
+| KES | M-PESA |
+| KES | Airtel Kenya |
+| KES | Telkom Kenya |
+
+> [!NOTE]
+>
+> MoMo list shown from platform defaults. Sync catalog for the live operator list.
+
+## Banks by market
+
+Bank lists are synced per market. Run `pnpm sync:providers` in `core/` to refresh the catalog snapshot, then re-export docs coverage.
+
+Fetch live lists from the Morapay API:
+
+```bash theme={null}
+curl -s "https://api.morapay.io/api/public/fiat/banks?country=ghana"
+
+curl -s "https://api.morapay.io/api/v1/merchant/payout-rails/banks" \
+  -H "Morapay-Key: pk_test_..." \
+  -H "Morapay-Timestamp: ..." \
+  -H "Morapay-Signature: v1=..."
+```
+
+## Related
+
+* [Payout timing & limits](https://docs.morapay.io/reference/payout-timing.md)
+* [Payouts & MoMo](https://docs.morapay.io/concepts/payouts-momo.md)
+
+
+This documentation is built and hosted on [Mintlify](https://mintlify.com), a developer documentation platform.

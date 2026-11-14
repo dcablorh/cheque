@@ -38,10 +38,16 @@ Each cheque shows the amount in words and figures, the recipient, the sender, a 
 | `packages/shared` | Environment parsing and logging |
 | `contract/cheque` | Soroban escrow contract (Rust) |
 | `scripts/` | Testnet bootstrap, contract deploy and end-to-end flows |
-| `docs/` | Product spec, contract spec, brand and account checklists |
-| `DESIGN.md` | Visual design system |
+| `docs/` | Product spec, implementation spec, contract spec, design system, settlement guides |
 
-For architecture, the API, data model and the state machine, read **[docs/TECHNICAL.md](docs/TECHNICAL.md)**. The product spec is in [docs/SPEC.md](docs/SPEC.md) and the contract in [docs/CONTRACT.md](docs/CONTRACT.md).
+All project documentation is consolidated in the **`docs/`** directory:
+- **[docs/cheque.md](docs/cheque.md)** — Digital Cheques for Ghana implementation spec
+- **[docs/SPEC.md](docs/SPEC.md)** — Core product specification
+- **[docs/CONTRACT.md](docs/CONTRACT.md)** — Soroban smart contract specification
+- **[docs/DESIGN.md](docs/DESIGN.md)** — Visual design system and UI components
+- **[docs/moropay.md](docs/moropay.md)** — MoraPay offramp & onramp integration guide
+- **[docs/SEEVCASH_FINDINGS.md](docs/SEEVCASH_FINDINGS.md)** — SeevCash Stellar Anchor findings
+- **[docs/morapay/](docs/morapay/README.md)** — Mirrored MoraPay developer documentation
 
 ## Quick start
 

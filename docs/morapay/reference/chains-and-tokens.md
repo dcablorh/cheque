@@ -1,0 +1,93 @@
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.morapay.io/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# Chains & tokens
+
+> Web3 chains and crypto checkout tokens.
+
+Crypto catalog for checkout, quotes, and swaps. **Live** merchants use mainnet chains; **Test** merchants use testnet chains. Fiat checkout methods are listed separately on [Countries & fiat](https://docs.morapay.io/reference/countries-and-fiat.md).
+
+Public API:
+
+* `GET /api/public/catalog/chains`
+* `GET /api/public/catalog/tokens` optional `?chain_id=`
+
+## Live chains
+
+Use with `?environment=LIVE` or the default catalog response.
+
+| Chain ID | Name | Platform managed |
+| - | - | - |
+| 42161 | Arbitrum | No |
+| 8453 | Base | No |
+| 56 | BNB | No |
+| 1 | Ethereum | No |
+| 10 | Optimism | No |
+| 137 | Polygon | No |
+| 101 | SOLANA | No |
+
+## Test chains
+
+Use with `?environment=TEST`.
+
+| Chain ID | Name | Platform managed |
+| - | - | - |
+| 421614 | Arbitrum Sepolia | Yes |
+| 84532 | Base Sepolia | Yes |
+| 11155111 | Ethereum Sepolia | Yes |
+| 11155420 | Optimism Sepolia | Yes |
+| 80002 | Polygon Amoy | Yes |
+
+## Offchain rails
+
+Internal sentinel chains for fiat quote routing: BANK chain ID 2, MOMO chain ID 0. These are not crypto checkout tokens.
+
+## Live checkout tokens
+
+| Chain | Chain ID | Symbol | Name | Decimals | Checkout |
+| - | - | - | - | - | - |
+| Ethereum | 1 | ETH | Ether | 18 | |
+| Ethereum | 1 | MANA | Decentraland MANA | 18 | |
+| Ethereum | 1 | USDC | USD Coin | 6 | |
+| Ethereum | 1 | WXRP | Wrapped XRP | 18 | Featured |
+| Optimism | 10 | USDC | USD Coin | 6 | |
+| BNB | 56 | BNB | BNB | 18 | |
+| BNB | 56 | USDC | USD Coin | 18 | Featured |
+| SOLANA | 101 | SOL | Solana | 9 | Featured |
+| SOLANA | 101 | USDC | USD Coin | 6 | |
+| SOLANA | 101 | USDT | Tether USD | 6 | |
+| Polygon | 137 | USDC | USD Coin | 6 | |
+| Base | 8453 | DAI | Dai Stablecoin | 18 | |
+| Base | 8453 | ETH | Ether | 18 | |
+| Base | 8453 | USDC | USD Coin | 6 | Featured |
+| Arbitrum | 42161 | USDC | USD Coin | 6 | |
+
+## Test checkout tokens
+
+| Chain | Chain ID | Symbol | Name | Decimals | Checkout |
+| - | - | - | - | - | - |
+| Polygon Amoy | 80002 | POL | Polygon | 18 | |
+| Polygon Amoy | 80002 | USDC | USD Coin | 6 | Featured |
+| Base Sepolia | 84532 | ETH | Ether | 18 | Featured |
+| Base Sepolia | 84532 | USDC | USD Coin | 6 | Featured |
+| Arbitrum Sepolia | 421614 | ETH | Ether | 18 | |
+| Arbitrum Sepolia | 421614 | USDC | USD Coin | 6 | Featured |
+| Ethereum Sepolia | 11155111 | ETH | Ether | 18 | |
+| Ethereum Sepolia | 11155111 | USDC | USD Coin | 6 | Featured |
+| Optimism Sepolia | 11155420 | ETH | Ether | 18 | |
+| Optimism Sepolia | 11155420 | USDC | USD Coin | 6 | Featured |
+
+## SDK example
+
+```typescript theme={null}
+const quote = await morapay.link.quote("link_abc", { chainId: 8453 });
+```
+
+## Related
+
+* [Countries & fiat](https://docs.morapay.io/reference/countries-and-fiat.md)
+* [Disbursement tokens](https://docs.morapay.io/reference/disbursement-tokens.md)
+
+
+This documentation is built and hosted on [Mintlify](https://mintlify.com), a developer documentation platform.

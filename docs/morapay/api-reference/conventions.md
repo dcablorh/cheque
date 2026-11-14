@@ -1,0 +1,179 @@
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.morapay.io/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# Conventions
+
+> HTTP methods, pagination, response envelope, and common errors for the Morapay API.
+
+All Merchant API paths are relative to `https://api.morapay.io/api/v1/merchant` unless noted. Public catalog and checkout paths use `/api/public/*`.
+
+## HTTP methods
+
+| Method | Use |
+| - | - |
+| `GET` | Read a resource or list with query filters |
+| `POST` | Create a resource or run an action such as quote, deposit, or refund |
+| `PATCH` | Partial update on an existing resource |
+| `PUT` | Full replace where documented, for example business country |
+| `DELETE` | Remove or cancel where documented, for example webhook endpoint or scheduled batch |
+
+Signed headers are required on every Merchant API call. See [Authentication](https://docs.morapay.io/getting-started/authentication.md).
+
+## Pagination
+
+List endpoints accept:
+
+| Query | Default | Max |
+| - | - | - |
+| `page` | `1` | — |
+| `limit` | `20` | `100` |
+
+Paginated success responses include `meta`:
+
+```json theme={null}
+{
+  "success": true,
+  "data": [],
+  "meta": { "page": 1, "limit": 20, "total": 42 }
+}
+```
+
+## Success envelope
+
+```json theme={null}
+{ "success": true, "data": { } }
+```
+
+Create endpoints return **201 Created** when a new row is inserted. Async actions such as refunds, withdrawals, and webhook retries may return **202 Accepted** while processing continues. Idempotent replays may return **200 OK** with the same body.
+
+## Error envelope
+
+Every failed JSON response uses the same shape:
+
+```json theme={null}
+{
+  "success": false,
+  "error": "Human-readable diagnostic for developers",
+  "code": "links.amount.below_minimum",
+  "safeMessage": "Customer-safe copy",
+  "displayMessage": "UI-ready copy",
+  "why": "Why the API rejected the request",
+  "howToFix": "Actionable fix for integrators",
+  "docUrl": "https://docs.morapay.io/errors/codes/links-amount-below-minimum",
+  "requestId": "req_1717483920_abc",
+  "details": {}
+}
+```
+
+Always log `requestId` and include it when contacting support.
+
+## Common HTTP status codes
+
+| HTTP | Typical `code` | When you see it |
+| - | - | - |
+| **200** | — | Successful read or update |
+| **201** | — | Resource created |
+| **202** | — | Accepted; processing continues async (refunds, withdrawals, webhook retry) |
+| **400** | `request.invalid` | Malformed JSON or failed Zod validation |
+| **401** | `auth.keys.invalid`, `auth.signature.mismatch`, `auth.signature.timestamp_expired` | Missing or wrong API key or signature |
+| **403** | `kyb.forbidden`, `FORBIDDEN_MERCHANT_ROLE` | LIVE action blocked by KYB tier or portal role |
+| **404** | `resource.not_found` | Unknown id or wrong tenant |
+| **409** | `links.slug.duplicate`, `resource.conflict` | Duplicate slug or stale optimistic update |
+| **422** | `request.validation_failed`, `links.amount.below_minimum` | Business rule or field validation failure |
+| **429** | `api.rate_limited` | Too many requests; back off and retry |
+| **503** | `api.service_unavailable` | Temporary outage or dependency down |
+
+```json 401 Unauthorized theme={null}
+{
+  "success": false,
+  "error": "Invalid request signature.",
+  "code": "auth.signature.mismatch",
+  "safeMessage": "We could not verify this request. Please try again later.",
+  "displayMessage": "Payment could not be started. Please refresh and try again.",
+  "requestId": "req_abc123"
+}
+```
+
+```json 403 Forbidden theme={null}
+{
+  "success": false,
+  "error": "Complete KYB before creating LIVE payment links.",
+  "code": "kyb.forbidden",
+  "requestId": "req_def456"
+}
+```
+
+```json 404 Not Found theme={null}
+{
+  "success": false,
+  "error": "Payment link not found.",
+  "code": "resource.not_found",
+  "requestId": "req_ghi789"
+}
+```
+
+```json 422 Unprocessable Entity theme={null}
+{
+  "success": false,
+  "error": "Amount is below the minimum for this corridor.",
+  "code": "links.amount.below_minimum",
+  "displayMessage": "The transaction amount must be at least 1.00 GHS.",
+  "docUrl": "https://docs.morapay.io/errors/codes/links-amount-below-minimum",
+  "requestId": "req_jkl012"
+}
+```
+
+```json 429 Too Many Requests theme={null}
+{
+  "success": false,
+  "error": "Rate limit exceeded.",
+  "code": "api.rate_limited",
+  "requestId": "req_mno345"
+}
+```
+
+```json 503 Service Unavailable theme={null}
+{
+  "success": false,
+  "error": "Service temporarily unavailable.",
+  "code": "api.service_unavailable",
+  "requestId": "req_pqr678"
+}
+```
+
+## Portal RBAC
+
+Some mutating routes require a **BusinessMember** role when using portal JWT auth. Merchant API keys skip role checks.
+
+| Capability | Allowed roles |
+| - | - |
+| `PATCH /business` | `OWNER`, `ADMIN` |
+| `POST /keys`, revoke keys | `OWNER`, `ADMIN`, `DEVELOPER` |
+| `POST /methods`, withdrawals | `OWNER`, `ADMIN`, `FINANCE` |
+| Webhook endpoint mutations | `OWNER`, `ADMIN`, `DEVELOPER` |
+| `POST /transactions/:id/refunds` | `OWNER`, `ADMIN`, `FINANCE` |
+
+On denial: **403** with `FORBIDDEN_MERCHANT_ROLE`.
+
+## Legacy route aliases
+
+Older docs and integrations may reference retired paths. Use the current route.
+
+| Legacy | Current |
+| - | - |
+| `GET/POST /api/v1/merchant/payment-requests` | `GET/POST /api/v1/merchant/requests` |
+| `POST /api/v1/merchant/links/:id/settlement-quote` | `POST /api/v1/merchant/links/:id/quote` |
+| `POST /api/commerce/paystack-fiat-quote` | `POST /api/commerce/checkout-fiat` (public entry: `POST /api/public/commerce/fiat`) |
+| `POST /api/public/catalog/quotes/checkout` | `POST /api/public/quotes/checkout` |
+| `GET /api/public/payment-links/:slug` | `GET /api/public/links/:slug` (alias still works) |
+| `POST /api/public/payment-links/:slug/sessions` | `POST /api/public/links/:slug/sessions` (alias still works) |
+
+## Related
+
+* [Authentication](https://docs.morapay.io/getting-started/authentication.md)
+* [Error handling](https://docs.morapay.io/errors/error-handling.md)
+* [API overview](https://docs.morapay.io/api-reference/overview.md)
+
+
+This documentation is built and hosted on [Mintlify](https://mintlify.com), a developer documentation platform.

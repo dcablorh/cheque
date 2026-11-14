@@ -1,0 +1,273 @@
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.morapay.io/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# Disbursement API
+
+> REST endpoints for treasury accounts, batch quotes, and MoMo disbursements.
+
+Batch **disbursements** are exposed at `/api/v1/merchant/disbursement/*`. All routes require [signed requests](https://docs.morapay.io/getting-started/authentication.md).
+
+Supported settlement tokens are **USDC on Base (8453)**, **USDC on Ethereum (1)**, plus ETH on those chains. TEST uses **Base Sepolia (84532)**.
+See [Disbursement tokens](https://docs.morapay.io/reference/disbursement-tokens.md).
+
+## Account summary
+
+`GET /api/v1/merchant/disbursement/account`
+
+Returns treasury balance, reserved funds, and environment.
+
+```bash cURL theme={null}
+curl -s "https://api.morapay.io/api/v1/merchant/disbursement/account" \
+  -H "Morapay-Key: $MORAPAY_PUBLIC_KEY" \
+  -H "Morapay-Timestamp: $TIMESTAMP" \
+  -H "Morapay-Signature: v1=$SIGNATURE"
+```
+
+```json 200 OK theme={null}
+{
+  "success": true,
+  "data": {
+    "environment": "TEST",
+    "balanceUsd": 1250.5,
+    "reservedUsd": 100,
+    "availableUsd": 1150.5
+  }
+}
+```
+
+```json 401 Unauthorized theme={null}
+{
+  "success": false,
+  "error": "Invalid request signature.",
+  "code": "auth.signature.mismatch",
+  "requestId": "req_acct401"
+}
+```
+
+## Quote a batch
+
+`POST /api/v1/merchant/disbursement/batches/quote`
+
+Get fees and validate `chainId` + `token` before creating a batch.
+
+### Request body
+
+| Field | Type | Required | Description |
+| - | - | - | - |
+| `chainId` | number | Yes | e.g. `8453` Base chain ID 8453, Ethereum chain ID 1 |
+| `token` | string | Yes | e.g. `USDC` |
+| `payoutTotal` | number | Yes | Total USD to disburse |
+| `recipientCount` | number | Yes | Number of recipients |
+
+```bash cURL theme={null}
+curl -s -X POST "https://api.morapay.io/api/v1/merchant/disbursement/batches/quote" \
+  -H "Content-Type: application/json" \
+  -H "Morapay-Key: $MORAPAY_PUBLIC_KEY" \
+  -H "Morapay-Timestamp: $TIMESTAMP" \
+  -H "Morapay-Signature: v1=$SIGNATURE" \
+  -d '{
+    "chainId": 8453,
+    "token": "USDC",
+    "payoutTotal": 250,
+    "recipientCount": 10
+  }'
+```
+
+```json 200 OK theme={null}
+{
+  "success": true,
+  "data": {
+    "quote": {
+      "usdCharge": 257.5,
+      "payoutTotal": 250,
+      "recipientCount": 10,
+      "chainId": 8453,
+      "token": "USDC"
+    }
+  }
+}
+```
+
+```json 400 Bad Request theme={null}
+{
+  "success": false,
+  "error": "Chain 8453 is not available in TEST mode.",
+  "code": "UNSUPPORTED_CHAIN",
+  "requestId": "req_quote_chain"
+}
+```
+
+## Create a batch
+
+`POST /api/v1/merchant/disbursement/batches`
+
+### Request body
+
+| Field | Type | Required | Description |
+| - | - | - | - |
+| `chainId` | number | Yes | Settlement chain |
+| `token` | string | Yes | Settlement token symbol |
+| `schedule` | string | Yes | `one_time` or `recurring` |
+| `usdCharge` | number | Yes | Must match latest quote |
+| `payoutTotal` | number | Yes | Total payout amount |
+| `payoutDate` | string | Yes | ISO date |
+| `processingAt` | string | Yes | ISO datetime when dispatch starts |
+| `recipients` | array | Yes | Up to 5000 recipients |
+| `recurrenceCadence` | string | If recurring | `weekly`, `monthly`, `yearly` |
+| `idempotencyKey` | string | On deposit/withdraw only | See account transfers |
+
+Each recipient:
+
+| Field | Type | Description |
+| - | - | - |
+| `customerName` | string | Display name |
+| `contact` | string | Email or phone |
+| `payerAccount` | string | MoMo number or bank account |
+| `amountRaw` | string | Amount string as entered |
+| `amountValue` | number | Numeric amount |
+| `amountIsPercent` | boolean | Percent of pool vs fixed |
+
+```bash cURL theme={null}
+curl -s -X POST "https://api.morapay.io/api/v1/merchant/disbursement/batches" \
+  -H "Content-Type: application/json" \
+  -H "Morapay-Key: $MORAPAY_PUBLIC_KEY" \
+  -H "Morapay-Timestamp: $TIMESTAMP" \
+  -H "Morapay-Signature: v1=$SIGNATURE" \
+  -d '{
+    "chainId": 8453,
+    "token": "USDC",
+    "schedule": "one_time",
+    "usdCharge": 257.5,
+    "payoutTotal": 250,
+    "payoutDate": "2026-03-20",
+    "processingAt": "2026-03-20T10:00:00.000Z",
+    "recipients": [
+      {
+        "customerName": "Ama Mensah",
+        "contact": "ama@example.com",
+        "payerAccount": "233241234567",
+        "amountRaw": "25",
+        "amountValue": 25,
+        "amountIsPercent": false
+      }
+    ]
+  }'
+```
+
+```json 201 Created theme={null}
+{
+  "success": true,
+  "data": {
+    "id": "batch_xyz",
+    "status": "SCHEDULED",
+    "chainId": 8453,
+    "token": "USDC",
+    "payoutTotal": 250,
+    "processingAt": "2026-03-20T10:00:00.000Z",
+    "recipientCount": 1
+  }
+}
+```
+
+```json 400 Bad Request theme={null}
+{
+  "success": false,
+  "error": "Insufficient disbursement balance.",
+  "code": "INSUFFICIENT_RECURRING",
+  "requestId": "req_batch_bal"
+}
+```
+
+```json 401 Unauthorized theme={null}
+{
+  "success": false,
+  "error": "Invalid request signature.",
+  "code": "auth.signature.mismatch",
+  "requestId": "req_batch401"
+}
+```
+
+## List batches
+
+`GET /api/v1/merchant/disbursement/batches`
+
+| Query | Description |
+| - | - |
+| `page`, `limit` | Pagination |
+| `schedule` | `one_time` or `recurring` |
+
+## Get batch
+
+`GET /api/v1/merchant/disbursement/batches/:id`
+
+Returns batch status, recipients, and per-recipient payout status.
+
+## Cancel batch
+
+`DELETE /api/v1/merchant/disbursement/batches/:id`
+
+Cancels a `SCHEDULED` batch before `processingAt`.
+
+## Ledger
+
+`GET /api/v1/merchant/disbursement/ledger`
+
+Paginated ledger entries for the disbursement account.
+
+## Account transfers
+
+| Endpoint | Method | Body |
+| - | - | - |
+| `/disbursement/account/deposit` | POST | `{ "amountUsd", "idempotencyKey" }` |
+| `/disbursement/account/withdraw` | POST | `{ "amountUsd", "idempotencyKey" }` |
+| `/disbursement/transfers` | GET | `?account=CLEARING\|RECURRING` |
+
+`idempotencyKey` must be 8–200 characters. Replaying the same key returns the original result.
+
+## Constraints
+
+Platform minimums (USD equivalent):
+
+| Product | Minimum |
+| - | - |
+| Disbursement batch | \$5 |
+| Withdrawal | \$5 |
+
+After dispatch starts, recipients typically receive funds within **\~2 minutes per on-chain chunk** (capped at 120 minutes). See [Payout timing](https://docs.morapay.io/reference/payout-timing.md).
+
+| Error code | HTTP | Meaning |
+| - | - | - |
+| `UNSUPPORTED_CHAIN` | 400 | Chain not valid for TEST/LIVE |
+| `UNSUPPORTED_TOKEN` | 400 | Token not on pool for disbursement |
+| `INSUFFICIENT_RECURRING` | 400 | Treasury balance too low |
+| `auth.signature.mismatch` | 401 | Invalid signed request |
+| `resource.not_found` | 404 | Unknown batch id |
+| `resource.conflict` | 409 | Batch already processing or canceled |
+
+```json 400 Bad Request theme={null}
+{
+  "success": false,
+  "error": "Chain 8453 is not available in TEST mode.",
+  "code": "UNSUPPORTED_CHAIN",
+  "requestId": "req_batch_chain"
+}
+```
+
+```json 400 Bad Request theme={null}
+{
+  "success": false,
+  "error": "Insufficient disbursement balance.",
+  "code": "INSUFFICIENT_RECURRING",
+  "requestId": "req_batch_bal"
+}
+```
+
+## Related
+
+* [Payouts & MoMo concept](https://docs.morapay.io/concepts/payouts-momo.md)
+* [Payout rails API](https://docs.morapay.io/api-reference/payout-rails.md)
+* [Webhooks](https://docs.morapay.io/developer-tools/webhooks.md). `disbursement_batch.created`, `payout.status_updated`
+
+
+This documentation is built and hosted on [Mintlify](https://mintlify.com), a developer documentation platform.

@@ -1,0 +1,85 @@
+# Morapay
+
+> Morapay Merchant API, SDK, and integration guides for checkout and payouts.
+
+- [Quickstart](https://docs.morapay.io/getting-started/quickstart.md): Make your first Morapay API call in under three minutes.
+- [Authentication](https://docs.morapay.io/getting-started/authentication.md): Morapay Merchant API v1 uses HMAC-signed requests with Morapay API keys.
+- [Environments](https://docs.morapay.io/getting-started/environments.md): Morapay separates **TEST** and **LIVE** at the API key level.
+- [Payment links](https://docs.morapay.io/concepts/payment-links.md): Create checkout links, track payments, and issue per-customer product links.
+- [Subscriptions](https://docs.morapay.io/concepts/subscriptions.md): Plans, enrolled subscribers, and recurring payment events.
+- [Payouts & mobile money](https://docs.morapay.io/concepts/payouts-momo.md): Disburse funds to MoMo wallets via batch payouts and treasury accounts.
+- [Native components](https://docs.morapay.io/frontend-ui/native-components.md): Intent-driven errors and checkout UI without nested iframe modals.
+- [React hooks & components](https://docs.morapay.io/frontend-ui/react-hooks.md): @morapay/react package: drop-in error and checkout UI.
+- [Custom styling](https://docs.morapay.io/frontend-ui/custom-styling.md): Match Morapay UI components to your brand with tokens and Tailwind.
+- [Webhooks](https://docs.morapay.io/developer-tools/webhooks.md): Register endpoints, verify signatures, and handle merchant events.
+- [Idempotency](https://docs.morapay.io/developer-tools/idempotency.md): Prevent duplicate ledger movements and safely retry API calls.
+- [Error handling](https://docs.morapay.io/errors/error-handling.md): Consultant-grade errors with safeMessage, displayMessage, uiHint, and requestId.
+- [auth.unauthorized](https://docs.morapay.io/errors/codes/auth-unauthorized.md): We could not verify this request. Please try again later.
+- [auth.forbidden](https://docs.morapay.io/errors/codes/auth-forbidden.md): You do not have permission to perform this action.
+- [auth.keys.invalid](https://docs.morapay.io/errors/codes/auth-keys-invalid.md): We could not verify this request. Please try again later.
+- [auth.keys.revoked](https://docs.morapay.io/errors/codes/auth-keys-revoked.md): We could not verify this request. Please try again later.
+- [auth.keys.expired](https://docs.morapay.io/errors/codes/auth-keys-expired.md): We could not verify this request. Please try again later.
+- [auth.keys.legacy_unsupported](https://docs.morapay.io/errors/codes/auth-keys-legacy-unsupported.md): We could not verify this request. Please try again later.
+- [auth.keys.secret_in_header](https://docs.morapay.io/errors/codes/auth-keys-secret-in-header.md): We could not verify this request. Please try again later.
+- [auth.keys.origin_not_allowed](https://docs.morapay.io/errors/codes/auth-keys-origin-not-allowed.md): This action is not available from this application.
+- [auth.signature.mismatch](https://docs.morapay.io/errors/codes/auth-signature-mismatch.md): We could not verify this request. Please try again later.
+- [auth.signature.timestamp_expired](https://docs.morapay.io/errors/codes/auth-signature-timestamp-expired.md): We could not verify this request. Please try again later.
+- [auth.signature.incomplete](https://docs.morapay.io/errors/codes/auth-signature-incomplete.md): We could not verify this request. Please try again later.
+- [auth.signature.missing](https://docs.morapay.io/errors/codes/auth-signature-missing.md): We could not verify this request. Please try again later.
+- [auth.signature.invalid_timestamp](https://docs.morapay.io/errors/codes/auth-signature-invalid-timestamp.md): We could not verify this request. Please try again later.
+- [auth.signature.invalid_format](https://docs.morapay.io/errors/codes/auth-signature-invalid-format.md): We could not verify this request. Please try again later.
+- [kyb.forbidden](https://docs.morapay.io/errors/codes/kyb-forbidden.md): You do not have permission to perform this action.
+- [kyb.blocked](https://docs.morapay.io/errors/codes/kyb-blocked.md): This action is not available for your account.
+- [links.amount.below_minimum](https://docs.morapay.io/errors/codes/links-amount-below-minimum.md): This amount is below the minimum allowed for mobile money checkout in this region.
+- [links.slug.duplicate](https://docs.morapay.io/errors/codes/links-slug-duplicate.md): This checkout link address is already in use. Please choose another.
+- [payouts.momo.insufficient_balance](https://docs.morapay.io/errors/codes/payouts-momo-insufficient-balance.md): This payout cannot be completed right now. Please try again shortly.
+- [payouts.network.carrier_down](https://docs.morapay.io/errors/codes/payouts-network-carrier-down.md): Mobile money is temporarily unavailable. Please try again in a few minutes.
+- [payouts.clearing.refund_failed](https://docs.morapay.io/errors/codes/payouts-clearing-refund-failed.md): This payout could not be completed. Please contact support.
+- [crypto.chain.unsupported](https://docs.morapay.io/errors/codes/crypto-chain-unsupported.md): This payment network is not supported for checkout.
+- [crypto.slippage.exceeded](https://docs.morapay.io/errors/codes/crypto-slippage-exceeded.md): The exchange rate moved too much. Please refresh and try again.
+- [resource.not_found](https://docs.morapay.io/errors/codes/resource-not-found.md): The requested item could not be found.
+- [resource.conflict](https://docs.morapay.io/errors/codes/resource-conflict.md): This action conflicts with an existing record. Please refresh and try again.
+- [request.invalid](https://docs.morapay.io/errors/codes/request-invalid.md): Some of the information provided is invalid. Please review and try again.
+- [request.validation_failed](https://docs.morapay.io/errors/codes/request-validation-failed.md): Some of the information provided is invalid. Please review and try again.
+- [api.rate_limited](https://docs.morapay.io/errors/codes/api-rate-limited.md): Too many requests. Please wait a moment and try again.
+- [api.service_unavailable](https://docs.morapay.io/errors/codes/api-service-unavailable.md): Our payment service is temporarily unavailable. Please try again shortly.
+- [api.internal_error](https://docs.morapay.io/errors/codes/api-internal-error.md): Something went wrong on our end. Please try again shortly.
+- [api.bad_gateway](https://docs.morapay.io/errors/codes/api-bad-gateway.md): Our payment service is temporarily unavailable. Please try again shortly.
+- [api.gateway_timeout](https://docs.morapay.io/errors/codes/api-gateway-timeout.md): Our payment service is temporarily unavailable. Please try again shortly.
+- [api.connection_failed](https://docs.morapay.io/errors/codes/api-connection-failed.md): We could not reach the payment service. Please try again.
+- [api.proxy.core_unconfigured](https://docs.morapay.io/errors/codes/api-proxy-core-unconfigured.md): Our payment service is temporarily unavailable. Please try again shortly.
+- [api.proxy.signing_unconfigured](https://docs.morapay.io/errors/codes/api-proxy-signing-unconfigured.md): Our payment service is temporarily unavailable. Please try again shortly.
+- [api.proxy.core_unreachable](https://docs.morapay.io/errors/codes/api-proxy-core-unreachable.md): Our payment service is temporarily unavailable. Please try again shortly.
+- [Get help](https://docs.morapay.io/support/get-help.md): How to reach Morapay support and get unblocked fast.
+- [API overview](https://docs.morapay.io/api-reference/overview.md): Morapay REST API base URL, authentication, endpoint index, and response envelope.
+- [Conventions](https://docs.morapay.io/api-reference/conventions.md): HTTP methods, pagination, response envelope, and common errors for the Morapay API.
+- [Payment links](https://docs.morapay.io/api-reference/payment-links.md): Create, list, update, and quote payment links via REST.
+- [Products](https://docs.morapay.io/api-reference/products.md): Catalog products and product-scoped payment links.
+- [Business QR and pay pages](https://docs.morapay.io/api-reference/business-qr.md): Open-amount business checkout, QR configuration, and payment requests.
+- [Quotes](https://docs.morapay.io/api-reference/quotes.md): Ramp, fiat, and checkout quotes before committing funds.
+- [Fiat checkout API](https://docs.morapay.io/api-reference/fiat-checkout.md): REST endpoints for MoMo, bank transfer, and card checkout configuration.
+- [Merchant ramp](https://docs.morapay.io/api-reference/merchant-ramp.md): Fiat onramp and offramp for registered merchants — quote, initiate, status, and webhooks.
+- [Transactions](https://docs.morapay.io/api-reference/transactions.md): List and inspect payments, settlements, and refunds.
+- [Payout methods](https://docs.morapay.io/api-reference/payout-methods.md): Save and manage MoMo and bank accounts for withdrawals.
+- [Disbursement API](https://docs.morapay.io/api-reference/disbursement.md): REST endpoints for treasury accounts, batch quotes, and MoMo disbursements.
+- [Payout rails API](https://docs.morapay.io/api-reference/payout-rails.md): List banks, MoMo operators, and resolve account names for withdrawals.
+- [Business and API keys](https://docs.morapay.io/api-reference/business-and-keys.md): Business profile, branding, summary KPIs, and API key management.
+- [Subscriptions](https://docs.morapay.io/api-reference/subscriptions.md): Plans, enrollments, billing settings, and subscription checkout.
+- [Webhooks](https://docs.morapay.io/api-reference/webhooks.md): Register endpoints, reveal secrets, and inspect deliveries.
+- [Public checkout](https://docs.morapay.io/api-reference/public-checkout.md): Payer-facing endpoints for payment links, business pay, and subscriptions.
+- [Catalog API](https://docs.morapay.io/api-reference/catalog.md): REST endpoints for countries, chains, and tokens.
+- [Coverage overview](https://docs.morapay.io/reference/coverage.md): Supported countries, chains, tokens, banks, and payout constraints.
+- [Countries & fiat](https://docs.morapay.io/reference/countries-and-fiat.md): Supported countries, settlement currencies, and fiat payment methods.
+- [Fees, countries & taxes](https://docs.morapay.io/reference/fees-countries-taxes.md): Platform fees by product, country-specific processing rates, and tax responsibilities for merchants.
+- [Chains & tokens](https://docs.morapay.io/reference/chains-and-tokens.md): Web3 chains and crypto checkout tokens.
+- [Banks & MoMo withdrawal](https://docs.morapay.io/reference/banks-and-momo.md): Supported withdrawal rails, mobile money operators, and bank catalogs.
+- [Disbursement tokens](https://docs.morapay.io/reference/disbursement-tokens.md): Stablecoin rails for batch disbursements and treasury payouts.
+- [Payout timing & limits](https://docs.morapay.io/reference/payout-timing.md): Processing windows, platform minimums, and delivery estimates.
+
+## Optional
+
+- [GitHub](https://github.com/morapay)
+- [Support](mailto:support@morapay.io)
+
+
+This documentation is built and hosted on [Mintlify](https://mintlify.com), a developer documentation platform.
