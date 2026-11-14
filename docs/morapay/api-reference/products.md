@@ -1,0 +1,240 @@
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.morapay.io/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# Products
+
+> Catalog products and product-scoped payment links.
+
+Products group reusable catalog items. Each product can spawn payment links with shared branding and metadata.
+
+Base path: `/api/v1/merchant/products`
+
+## Endpoints
+
+| Method | Path | Description |
+| - | - | - |
+| `GET` | `/products` | List products |
+| `GET` | `/products/:id` | Get product |
+| `POST` | `/products` | Create product |
+| `PATCH` | `/products/:id` | Update product |
+| `GET` | `/products/:id/links` | List links for product |
+| `POST` | `/products/:id/links` | Create link under product |
+| `POST` | `/products/image` | Upload product image |
+
+## List products
+
+`GET /api/v1/merchant/products`
+
+| Query | Description |
+| - | - |
+| `page`, `limit` | Pagination |
+| `q` | Search name or SKU |
+| `status` | Filter by status |
+| `type` | Product type filter |
+| `includeArchived` | `1` to include archived |
+
+```bash cURL theme={null}
+curl -s "https://api.morapay.io/api/v1/merchant/products?page=1&limit=20" \
+  -H "Morapay-Key: $MORAPAY_PUBLIC_KEY" \
+  -H "Morapay-Timestamp: $TIMESTAMP" \
+  -H "Morapay-Signature: v1=$SIGNATURE"
+```
+
+```json 200 OK theme={null}
+{
+  "success": true,
+  "data": [
+    {
+      "id": "product_uuid",
+      "name": "Pro plan",
+      "currency": "USD",
+      "price": 49,
+      "isArchived": false
+    }
+  ],
+  "meta": { "page": 1, "limit": 20, "total": 1 }
+}
+```
+
+```json 401 Unauthorized theme={null}
+{
+  "success": false,
+  "error": "Invalid API key.",
+  "code": "auth.keys.invalid",
+  "requestId": "req_prod401"
+}
+```
+
+## Get product
+
+`GET /api/v1/merchant/products/:id`
+
+```bash cURL theme={null}
+curl -s "https://api.morapay.io/api/v1/merchant/products/product_uuid" \
+  -H "Morapay-Key: $MORAPAY_PUBLIC_KEY" \
+  -H "Morapay-Timestamp: $TIMESTAMP" \
+  -H "Morapay-Signature: v1=$SIGNATURE"
+```
+
+```json 200 OK theme={null}
+{
+  "success": true,
+  "data": {
+    "id": "product_uuid",
+    "name": "Pro plan",
+    "price": 49,
+    "currency": "USD"
+  }
+}
+```
+
+```json 404 Not Found theme={null}
+{
+  "success": false,
+  "error": "Product not found.",
+  "code": "resource.not_found",
+  "requestId": "req_prod404"
+}
+```
+
+## Create product
+
+`POST /api/v1/merchant/products`
+
+| Field | Type | Required | Description |
+| - | - | - | - |
+| `name` | string | Yes | Product name |
+| `description` | string | No | Long description |
+| `price` | number | No | Default price |
+| `currency` | string | No | Default currency |
+| `type` | string | No | Product type |
+| `metadata` | object | No | Custom fields |
+
+```bash cURL theme={null}
+curl -s -X POST "https://api.morapay.io/api/v1/merchant/products" \
+  -H "Content-Type: application/json" \
+  -H "Morapay-Key: $MORAPAY_PUBLIC_KEY" \
+  -H "Morapay-Timestamp: $TIMESTAMP" \
+  -H "Morapay-Signature: v1=$SIGNATURE" \
+  -d '{
+    "name": "Pro plan",
+    "price": 49,
+    "currency": "USD"
+  }'
+```
+
+```json 201 Created theme={null}
+{
+  "success": true,
+  "data": {
+    "id": "product_uuid",
+    "name": "Pro plan",
+    "currency": "USD",
+    "price": 49,
+    "isArchived": false
+  }
+}
+```
+
+```json 400 Bad Request theme={null}
+{
+  "success": false,
+  "error": "Validation failed",
+  "code": "request.invalid",
+  "details": { "fieldErrors": { "name": ["Required"] } },
+  "requestId": "req_prod_val"
+}
+```
+
+```json 403 Forbidden theme={null}
+{
+  "success": false,
+  "error": "Complete KYB before creating LIVE products.",
+  "code": "kyb.forbidden",
+  "requestId": "req_prod403"
+}
+```
+
+## Update product
+
+`PATCH /api/v1/merchant/products/:id`
+
+```bash cURL theme={null}
+curl -s -X PATCH "https://api.morapay.io/api/v1/merchant/products/product_uuid" \
+  -H "Content-Type: application/json" \
+  -H "Morapay-Key: $MORAPAY_PUBLIC_KEY" \
+  -H "Morapay-Timestamp: $TIMESTAMP" \
+  -H "Morapay-Signature: v1=$SIGNATURE" \
+  -d '{ "name": "Pro plan v2" }'
+```
+
+```json 200 OK theme={null}
+{
+  "success": true,
+  "data": {
+    "id": "product_uuid",
+    "name": "Pro plan v2"
+  }
+}
+```
+
+## Product payment links
+
+`POST /api/v1/merchant/products/:id/links`
+
+Creates a payment link attached to the product. Optional `customerEmail`, `customerName`, `customerExternalId`, and `metadata`.
+
+```bash cURL theme={null}
+curl -s -X POST "https://api.morapay.io/api/v1/merchant/products/product_uuid/links" \
+  -H "Content-Type: application/json" \
+  -H "Morapay-Key: $MORAPAY_PUBLIC_KEY" \
+  -H "Morapay-Timestamp: $TIMESTAMP" \
+  -H "Morapay-Signature: v1=$SIGNATURE" \
+  -d '{
+    "amount": 49,
+    "currency": "USD",
+    "customerEmail": "buyer@example.com"
+  }'
+```
+
+```json 201 Created theme={null}
+{
+  "success": true,
+  "data": {
+    "id": "link_uuid",
+    "productId": "product_uuid",
+    "amount": 49,
+    "currency": "USD",
+    "publicCode": "abc123xyz"
+  }
+}
+```
+
+```json 404 Not Found theme={null}
+{
+  "success": false,
+  "error": "Product not found.",
+  "code": "resource.not_found",
+  "requestId": "req_plink404"
+}
+```
+
+`GET /api/v1/merchant/products/:id/links` lists links for the product.
+
+## Common errors
+
+| Code | HTTP | Cause |
+| - | - | - |
+| `resource.not_found` | 404 | Unknown product id |
+| `request.invalid` | 400 | Invalid body |
+| `kyb.forbidden` | 403 | LIVE mutation blocked by KYB |
+| `auth.keys.invalid` | 401 | Invalid signed request |
+
+## Related
+
+* [Payment links API](https://docs.morapay.io/api-reference/payment-links.md)
+* [Subscriptions API](https://docs.morapay.io/api-reference/subscriptions.md)
+
+
+This documentation is built and hosted on [Mintlify](https://mintlify.com), a developer documentation platform.
