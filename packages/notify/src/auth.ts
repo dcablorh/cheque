@@ -36,10 +36,11 @@ export class SenderAuthService {
   private config: Required<Omit<AuthConfig, 'redisUrl' | 'redisClient'>>;
   private redis?: Redis;
   private otpService: PhoneOtpService;
+  private emailOtpService?: PhoneOtpService;
   private inMemoryRefreshTokens = new Map<string, { userId: string; expiresAt: number }>();
   private pool: pg.Pool;
 
-  constructor(config: AuthConfig, otpService: PhoneOtpService, pool?: pg.Pool) {
+  constructor(config: AuthConfig, otpService: PhoneOtpService, pool?: pg.Pool, emailOtpService?: PhoneOtpService) {
     this.config = {
       jwtSecret: config.jwtSecret || 'cheque_default_jwt_secret_change_in_production',
       accessTokenExpirySeconds: config.accessTokenExpirySeconds ?? 900, // 15 mins
@@ -48,6 +49,7 @@ export class SenderAuthService {
     };
 
     this.otpService = otpService;
+    this.emailOtpService = emailOtpService;
     this.pool = pool ?? getPool();
 
     if (config.redisClient) {
@@ -125,6 +127,61 @@ export class SenderAuthService {
     }
 
     // 3. Issue short-lived access JWT + rotating refresh token
+    const tokens = await this.issueTokens(user);
+    return tokens;
+  }
+
+  /**
+   * Step 1 (email): initiate email OTP login.
+   */
+  async requestEmailLoginOtp(params: {
+    email: string;
+    ipAddress?: string;
+    deviceFp?: string;
+  }): Promise<{ email: string; otp: string; channel: 'EMAIL' }> {
+    if (!this.emailOtpService) throw new Error('Email OTP service is not configured.');
+    const norm = params.email.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(norm)) {
+      throw new Error('Invalid email address.');
+    }
+    const { otp } = await this.emailOtpService.createOtpSession({ phoneInput: norm, ipAddress: params.ipAddress, deviceFp: params.deviceFp });
+    return { email: norm, otp, channel: 'EMAIL' };
+  }
+
+  /**
+   * Step 2 (email): verify OTP and issue tokens.
+   */
+  async verifyEmailLoginOtp(params: { email: string; otp: string; name?: string }): Promise<AuthTokens> {
+    if (!this.emailOtpService) throw new Error('Email OTP service is not configured.');
+    const email = params.email.trim().toLowerCase();
+    await this.emailOtpService.verifyOtp(email, params.otp);
+
+    const client = await this.pool.connect();
+    let user: User;
+    try {
+      const userRes = await client.query(
+        `
+        INSERT INTO users (id, email, name, created_at, updated_at)
+        VALUES (uuid_generate_v4(), $1, $2, NOW(), NOW())
+        ON CONFLICT (email) DO UPDATE
+        SET updated_at = NOW(),
+            name = COALESCE(EXCLUDED.name, users.name)
+        RETURNING
+          id,
+          phone_e164 AS "phoneE164",
+          email,
+          name,
+          pin_hash AS "pinHash",
+          created_at AS "createdAt",
+          updated_at AS "updatedAt";
+        `,
+        [email, params.name ?? null]
+      );
+      user = userRes.rows[0] as User;
+    } finally {
+      client.release();
+    }
+
     const tokens = await this.issueTokens(user);
     return tokens;
   }
@@ -232,7 +289,7 @@ export class SenderAuthService {
 
     const payload: JwtPayload = {
       sub: user.id,
-      phone: user.phoneE164,
+      phone: user.phoneE164 ?? user.email ?? '',
       role: 'sender',
       iat: nowSec,
       exp: expSec,

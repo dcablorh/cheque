@@ -8,11 +8,13 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 -- 1. Users
 CREATE TABLE IF NOT EXISTS users (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  phone_e164 VARCHAR(20) NOT NULL UNIQUE,
+  phone_e164 VARCHAR(20) UNIQUE,
+  email VARCHAR(255) UNIQUE,
   name VARCHAR(255),
   pin_hash TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT users_contact_check CHECK (phone_e164 IS NOT NULL OR email IS NOT NULL)
 );
 
 -- 2. Cheques
@@ -251,6 +253,9 @@ ALTER TABLE cheques ADD COLUMN IF NOT EXISTS funder_address VARCHAR(56);
 ALTER TABLE cheques ADD COLUMN IF NOT EXISTS corridor VARCHAR(2) NOT NULL DEFAULT 'GH';
 ALTER TABLE cheques DROP CONSTRAINT IF EXISTS cheques_corridor_check;
 ALTER TABLE cheques ADD CONSTRAINT cheques_corridor_check CHECK (corridor IN ('GH', 'NG', 'US'));
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email VARCHAR(255);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email);
 
 ALTER TABLE cheques ADD COLUMN IF NOT EXISTS currency VARCHAR(3) NOT NULL DEFAULT 'GHS';
 ALTER TABLE cheques DROP CONSTRAINT IF EXISTS cheques_currency_check;

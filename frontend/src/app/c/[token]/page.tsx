@@ -26,7 +26,7 @@ interface ClaimStatus extends PublicCheque {
   network: string;
 }
 
-type Step = 'summary' | 'destination';
+type Step = 'summary' | 'verify' | 'destination';
 
 const DEAD: Record<string, { title: string; body: string }> = {
   CANCELLED: { title: 'Cheque cancelled', body: 'The sender cancelled this cheque.' },
@@ -45,6 +45,9 @@ export default function ClaimPage() {
   const [error, setError] = useState('');
   const [loadError, setLoadError] = useState('');
   const [address, setAddress] = useState('');
+  const [otp, setOtp] = useState('');
+  const [sessionToken, setSessionToken] = useState('');
+  const [otpSent, setOtpSent] = useState(false);
   const idem = useRef('');
 
   const refresh = useCallback(async () => {
@@ -92,6 +95,7 @@ export default function ClaimPage() {
       await publicApi.post(`/claim/${token}/redeem`, {
         destination: { type: 'USDC', accountRef: address.trim() },
         idempotencyKey: idem.current,
+        sessionToken: sessionToken || undefined,
       });
       await refresh();
     });
@@ -174,10 +178,49 @@ export default function ClaimPage() {
               </p>
             </div>
             <ErrorNote>{error}</ErrorNote>
-            <button className="btn-primary w-full py-4" onClick={() => setStep('destination')}>
-              Claim {fmtMoney(cheque.amount, cheque.currency)}
+            <button className="btn-primary w-full py-4" disabled={busy} onClick={() => run(async () => {
+              try {
+                await publicApi.post(`/claim/${token}/otp/send`, {});
+                setOtpSent(true);
+                setStep('verify');
+              } catch (e) {
+                // If email verification isn't configured, fall through to direct claim.
+                if (e instanceof ApiError && e.status === 503) setStep('destination');
+                else throw e;
+              }
+            })}>
+              {busy && <Spinner />} Claim {fmtMoney(cheque.amount, cheque.currency)}
             </button>
           </div>
+        )}
+
+        {step === 'verify' && (
+          <form onSubmit={(e) => {
+            e.preventDefault();
+            return run(async () => {
+              const res = await publicApi.post<{ sessionToken: string }>(`/claim/${token}/otp/verify`, { otp: otp.trim() });
+              setSessionToken(res.sessionToken);
+              setStep('destination');
+            });
+          }} className="card space-y-5 p-6">
+            <div>
+              <h2 className="display ">Verify your email</h2>
+              <p className="mt-1 text-sm text-ink-soft">Enter the 6-digit code we sent to your email.</p>
+            </div>
+            <div>
+              <label className="label" htmlFor="otp">Verification code</label>
+              <input id="otp" className="field font-mono text-lg tracking-widest" placeholder="000000" inputMode="numeric" maxLength={6}
+                value={otp} onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))} />
+            </div>
+            <ErrorNote>{error}</ErrorNote>
+            <button className="btn-primary w-full py-4" disabled={busy || otp.length !== 6}>
+              {busy && <Spinner />} Verify
+            </button>
+            <button type="button" className="w-full text-sm text-ink-mute underline" disabled={busy} onClick={() => run(async () => {
+              await publicApi.post(`/claim/${token}/otp/send`, {});
+              setOtpSent(true);
+            })}>Resend code</button>
+          </form>
         )}
 
         {step === 'destination' && (

@@ -5,6 +5,13 @@ import { normalizePhone, PHONE_ERROR } from './phone.js';
 import { WhatsAppClient } from './whatsapp.js';
 import { SmsClient } from './sms.js';
 
+export interface OtpNormalizerResult {
+  isValid: boolean;
+  value: string;
+}
+
+export type OtpNormalizer = (input: string) => OtpNormalizerResult;
+
 export interface OtpConfig {
   salt: string;
   expirySeconds?: number; // default: 300 (5 min)
@@ -13,6 +20,7 @@ export interface OtpConfig {
   maxVerifyAttempts?: number; // default: 5
   redisUrl?: string;
   redisClient?: Redis;
+  normalize?: OtpNormalizer;
 }
 
 export interface StoredOtpRecord {
@@ -45,10 +53,11 @@ export class OtpVerificationError extends Error {
 }
 
 export class PhoneOtpService {
-  private config: Required<Omit<OtpConfig, 'redisUrl' | 'redisClient'>>;
+  private config: Required<Omit<OtpConfig, 'redisUrl' | 'redisClient' | 'normalize'>>;
   private redis?: Redis;
   private inMemoryStore = new Map<string, StoredOtpRecord>();
   private inMemoryRateLimits = new Map<string, { count: number; resetAt: number }>();
+  private normalize: OtpNormalizer;
 
   constructor(config: OtpConfig) {
     this.config = {
@@ -58,6 +67,10 @@ export class PhoneOtpService {
       maxSendsPerWindow: config.maxSendsPerWindow ?? 3, // max 3 sends
       maxVerifyAttempts: config.maxVerifyAttempts ?? 5, // max 5 attempts
     };
+    this.normalize = config.normalize ?? ((input: string) => {
+      const n = normalizePhone(input);
+      return { isValid: n.isValid, value: n.isValid ? n.phoneE164 : input };
+    });
 
     if (config.redisClient) {
       this.redis = config.redisClient;
@@ -150,12 +163,12 @@ export class PhoneOtpService {
     ipAddress?: string;
     deviceFp?: string;
   }): Promise<{ phoneE164: string; otp: string; otpHash: string; expiresAt: Date }> {
-    const norm = normalizePhone(params.phoneInput);
+    const norm = this.normalize(params.phoneInput);
     if (!norm.isValid) {
-      throw new Error(`Invalid phone number: ${params.phoneInput}. ${PHONE_ERROR}`);
+      throw new Error(`Invalid contact: ${params.phoneInput}.`);
     }
 
-    const phoneE164 = norm.phoneE164;
+    const phoneE164 = norm.value;
     const session = await this.createSessionForKey(phoneE164, params);
     return { phoneE164, ...session };
   }
@@ -173,27 +186,32 @@ export class PhoneOtpService {
     const cooldownKey = `otp:cooldown:${key}`;
 
     if (this.redis) {
-      const current = await this.redis.get(recordKey);
-      let sendsCount = 1;
-      if (current) {
-        const parsed = JSON.parse(current) as StoredOtpRecord;
-        sendsCount = parsed.sendsCount + 1;
+      try {
+        const current = await this.redis.get(recordKey);
+        let sendsCount = 1;
+        if (current) {
+          const parsed = JSON.parse(current) as StoredOtpRecord;
+          sendsCount = parsed.sendsCount + 1;
+        }
+
+        const record: StoredOtpRecord = {
+          phoneE164: key,
+          otpHash,
+          sendsCount,
+          verifyAttempts: 0,
+          expiresAt: expiresAtMs,
+          lastSentAt: Date.now(),
+          deviceFp: params.deviceFp,
+          ipAddress: params.ipAddress,
+        };
+
+        await this.redis.set(recordKey, JSON.stringify(record), 'EX', this.config.expirySeconds);
+        await this.redis.set(cooldownKey, '1', 'EX', this.config.resendCooldownSeconds);
+      } catch {
+        this.redis = undefined;
       }
-
-      const record: StoredOtpRecord = {
-        phoneE164: key,
-        otpHash,
-        sendsCount,
-        verifyAttempts: 0,
-        expiresAt: expiresAtMs,
-        lastSentAt: Date.now(),
-        deviceFp: params.deviceFp,
-        ipAddress: params.ipAddress,
-      };
-
-      await this.redis.set(recordKey, JSON.stringify(record), 'EX', this.config.expirySeconds);
-      await this.redis.set(cooldownKey, '1', 'EX', this.config.resendCooldownSeconds);
-    } else {
+    }
+    if (!this.redis) {
       const existing = this.inMemoryStore.get(key);
       const record: StoredOtpRecord = {
         phoneE164: key,
@@ -216,8 +234,8 @@ export class PhoneOtpService {
    * Tracks attempts and enforces 5 attempts max before invalidation.
    */
   async verifyOtp(phoneInput: string, incomingOtp: string): Promise<boolean> {
-    const norm = normalizePhone(phoneInput);
-    return this.verifyForKey(norm.isValid ? norm.phoneE164 : phoneInput, incomingOtp);
+    const norm = this.normalize(phoneInput);
+    return this.verifyForKey(norm.isValid ? norm.value : phoneInput, incomingOtp);
   }
 
   private async verifyForKey(phoneE164: string, incomingOtp: string): Promise<boolean> {
@@ -226,8 +244,13 @@ export class PhoneOtpService {
     let record: StoredOtpRecord | undefined;
 
     if (this.redis) {
-      const raw = await this.redis.get(recordKey);
-      if (raw) record = JSON.parse(raw) as StoredOtpRecord;
+      try {
+        const raw = await this.redis.get(recordKey);
+        if (raw) record = JSON.parse(raw) as StoredOtpRecord;
+      } catch {
+        this.redis = undefined;
+        record = this.inMemoryStore.get(phoneE164);
+      }
     } else {
       record = this.inMemoryStore.get(phoneE164);
     }
@@ -276,8 +299,13 @@ export class PhoneOtpService {
     }
 
     if (this.redis) {
-      const remainingTtl = Math.max(1, Math.floor((record.expiresAt - Date.now()) / 1000));
-      await this.redis.set(recordKey, JSON.stringify(record), 'EX', remainingTtl);
+      try {
+        const remainingTtl = Math.max(1, Math.floor((record.expiresAt - Date.now()) / 1000));
+        await this.redis.set(recordKey, JSON.stringify(record), 'EX', remainingTtl);
+      } catch {
+        this.redis = undefined;
+        this.inMemoryStore.set(phoneE164, record);
+      }
     } else {
       this.inMemoryStore.set(phoneE164, record);
     }
@@ -352,26 +380,32 @@ export class PhoneOtpService {
   private async clearOtpSession(phoneE164: string): Promise<void> {
     const recordKey = `otp:session:${phoneE164}`;
     if (this.redis) {
-      await this.redis.del(recordKey).catch(() => {});
-    } else {
-      this.inMemoryStore.delete(phoneE164);
+      try { await this.redis.del(recordKey); } catch { this.redis = undefined; }
     }
+    this.inMemoryStore.delete(phoneE164);
   }
 
   private async enforceRateLimit(key: string, limit: number, windowSeconds: number): Promise<void> {
     if (this.redis) {
-      const current = await this.redis.incr(key);
-      if (current === 1) {
-        await this.redis.expire(key, windowSeconds);
+      try {
+        const current = await this.redis.incr(key);
+        if (current === 1) {
+          await this.redis.expire(key, windowSeconds);
+        }
+        if (current > limit) {
+          const ttl = await this.redis.ttl(key);
+          throw new OtpRateLimitError(
+            `Too many requests. Please try again in ${Math.max(1, ttl)} seconds.`,
+            ttl
+          );
+        }
+        return;
+      } catch (err) {
+        if (err instanceof OtpRateLimitError) throw err;
+        this.redis = undefined;
       }
-      if (current > limit) {
-        const ttl = await this.redis.ttl(key);
-        throw new OtpRateLimitError(
-          `Too many requests. Please try again in ${Math.max(1, ttl)} seconds.`,
-          ttl
-        );
-      }
-    } else {
+    }
+    if (!this.redis) {
       const now = Date.now();
       const existing = this.inMemoryRateLimits.get(key);
       if (!existing || existing.resetAt <= now) {

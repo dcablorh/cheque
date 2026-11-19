@@ -77,9 +77,8 @@ export default function SenderApp() {
 /* -------------------------------------------------------------------------- sign in */
 
 function SignIn({ onDone }: { onDone: () => void }) {
-  const [step, setStep] = useState<'phone' | 'code'>('phone');
-  const [country, setCountry] = useState<CountryCode>('GH');
-  const [phone, setPhone] = useState('');
+  const [step, setStep] = useState<'email' | 'code'>('email');
+  const [email, setEmail] = useState('');
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
@@ -87,10 +86,6 @@ function SignIn({ onDone }: { onDone: () => void }) {
   const [resendIn, setResendIn] = useState(0);
   const [notice, setNotice] = useState('');
 
-  const c = COUNTRIES[country];
-  const e164 = toE164(phone, country);
-
-  // Count down before a new code can be requested, so people do not spam the SMS endpoint.
   useEffect(() => {
     if (resendIn <= 0) return;
     const t = setTimeout(() => setResendIn((n) => n - 1), 1000);
@@ -99,12 +94,12 @@ function SignIn({ onDone }: { onDone: () => void }) {
 
   async function requestCode(e?: React.FormEvent) {
     e?.preventDefault();
-    if (!e164) return setError(`Enter a valid ${c.name} number, e.g. ${c.phonePlaceholder}.`);
+    if (!email.trim()) return setError('Enter a valid email address.');
     setBusy(true);
     setError('');
     setNotice('');
     try {
-      await publicApi.post('/auth/otp/request', { phone: e164 });
+      await publicApi.post('/auth/email/otp/request', { email: email.trim() });
       setStep('code');
       setResendIn(30);
       setNotice(step === 'code' ? 'A new code is on its way.' : '');
@@ -121,10 +116,10 @@ function SignIn({ onDone }: { onDone: () => void }) {
     setError('');
     try {
       const t = await publicApi.post<{ accessToken: string; refreshToken: string; user: { name?: string } }>(
-        '/auth/otp/verify',
-        { phone: e164, otp: code, name: name.trim() || undefined }
+        '/auth/email/otp/verify',
+        { email: email.trim(), otp: code, name: name.trim() || undefined }
       );
-      session.set({ accessToken: t.accessToken, refreshToken: t.refreshToken, phone: e164!, name: t.user?.name });
+      session.set({ accessToken: t.accessToken, refreshToken: t.refreshToken, phone: email.trim(), name: t.user?.name });
       onDone();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Something went wrong.');
@@ -139,30 +134,22 @@ function SignIn({ onDone }: { onDone: () => void }) {
         <Logo />
       </Link>
       <div className="card animate-rise p-7">
-        <h1 className="display ">{step === 'phone' ? 'Welcome back' : 'Enter your code'}</h1>
+        <h1 className="display ">{step === 'email' ? 'Welcome back' : 'Enter your code'}</h1>
         <p className="mt-2 text-sm text-ink-soft">
-          {step === 'phone'
-            ? 'Sign in with your phone number. We will text you a one-time code.'
-            : `We sent a 6-digit code to ${e164}.`}
+          {step === 'email'
+            ? 'Sign in with your email. We will send you a one-time code.'
+            : `We sent a 6-digit code to ${email}.`}
         </p>
 
-        {step === 'phone' ? (
+        {step === 'email' ? (
           <form onSubmit={requestCode} className="mt-6 space-y-4">
             <div>
-              <label className="label" htmlFor="phone">Phone number</label>
-              <div className="flex gap-2">
-                <select aria-label="Country" className="field !w-auto shrink-0 !px-3" value={country}
-                  onChange={(e) => { setCountry(e.target.value as CountryCode); setError(''); }}>
-                  {COUNTRY_LIST.map((x) => (
-                    <option key={x.code} value={x.code}>{x.flag} +{x.dialCode}</option>
-                  ))}
-                </select>
-                <input id="phone" className="field min-w-0 flex-1" inputMode="tel" autoComplete="tel" placeholder={c.phonePlaceholder}
-                  value={phone} onChange={(e) => setPhone(e.target.value)} autoFocus />
-              </div>
+              <label className="label" htmlFor="email">Email address</label>
+              <input id="email" className="field" type="email" autoComplete="email" placeholder="you@example.com"
+                value={email} onChange={(e) => setEmail(e.target.value)} autoFocus />
             </div>
             <ErrorNote>{error}</ErrorNote>
-            <button className="btn-primary w-full" disabled={busy || !phone}>
+            <button className="btn-primary w-full" disabled={busy || !email.trim()}>
               {busy && <Spinner />} Send code
             </button>
           </form>
@@ -185,8 +172,8 @@ function SignIn({ onDone }: { onDone: () => void }) {
             </button>
             <div className="flex items-center justify-between text-sm">
               <button type="button" className="text-ink-soft underline disabled:no-underline disabled:opacity-50"
-                onClick={() => { setStep('phone'); setCode(''); setError(''); setNotice(''); }}>
-                Use a different number
+                onClick={() => { setStep('email'); setCode(''); setError(''); setNotice(''); }}>
+                Use a different email
               </button>
               <button type="button" className="text-ink-soft underline disabled:no-underline disabled:opacity-50"
                 onClick={() => requestCode()} disabled={busy || resendIn > 0}>
@@ -311,6 +298,7 @@ const EXPIRIES = [
 function NewCheque({ config, onCancel, onCreated }: { config: AppConfig; onCancel: () => void; onCreated: (id: string) => void }) {
   const [corridor, setCorridor] = useState<CountryCode>(config.corridors[0]?.code ?? 'GH');
   const [name, setName] = useState('');
+  const [payeeEmail, setPayeeEmail] = useState('');
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
   const [signature, setSignature] = useState<string | null>(null);
@@ -347,6 +335,7 @@ function NewCheque({ config, onCancel, onCreated }: { config: AppConfig; onCance
         method: 'POST',
         body: JSON.stringify({
           payeeName: name.trim(),
+          payeeEmail: payeeEmail.trim() || undefined,
           corridor,
           amount: amt,
           note: note.trim() || undefined,
@@ -400,6 +389,11 @@ function NewCheque({ config, onCancel, onCreated }: { config: AppConfig; onCance
         <div>
           <label className="label !mb-1 !text-[10px]" htmlFor="payee">Recipient name</label>
           <input id="payee" className={`field ${input}`} placeholder="Kojo Mensah" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+        </div>
+
+        <div>
+          <label className="label !mb-1 !text-[10px]" htmlFor="payeeEmail">Recipient email <span className="font-normal normal-case text-ink-mute">(for claim alert)</span></label>
+          <input id="payeeEmail" className={`field ${input}`} type="email" placeholder="kojo@example.com" value={payeeEmail} onChange={(e) => setPayeeEmail(e.target.value)} />
         </div>
 
         <div>
