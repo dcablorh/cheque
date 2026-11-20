@@ -1,11 +1,9 @@
 import { z } from 'zod';
 import { CORRIDOR_CODES } from './corridors.js';
+import { STELLAR_ADDRESS_REGEX } from './addresses.js';
 
 // Ghana E.164 phone regex: +233 followed by 9 digits (e.g. +233241234567, +233501234567)
 export const GHANA_PHONE_REGEX = /^\+233\d{9}$/;
-
-// Stellar Public Key regex: G followed by 55 alphanumeric uppercase characters (56 total)
-export const STELLAR_ADDRESS_REGEX = /^G[A-Z2-7]{55}$/;
 
 export const CreateChequeSchema = z
   .object({
