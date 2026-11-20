@@ -256,6 +256,10 @@ ALTER TABLE cheques ADD CONSTRAINT cheques_corridor_check CHECK (corridor IN ('G
 
 ALTER TABLE users ADD COLUMN IF NOT EXISTS email VARCHAR(255);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email);
+-- Existing DBs created phone_e164 as NOT NULL; email-only login needs it nullable.
+ALTER TABLE users ALTER COLUMN phone_e164 DROP NOT NULL;
+ALTER TABLE users DROP CONSTRAINT IF EXISTS users_contact_check;
+ALTER TABLE users ADD CONSTRAINT users_contact_check CHECK (phone_e164 IS NOT NULL OR email IS NOT NULL);
 
 ALTER TABLE cheques ADD COLUMN IF NOT EXISTS currency VARCHAR(3) NOT NULL DEFAULT 'GHS';
 ALTER TABLE cheques DROP CONSTRAINT IF EXISTS cheques_currency_check;
