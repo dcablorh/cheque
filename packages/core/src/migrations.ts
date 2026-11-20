@@ -268,6 +268,13 @@ ALTER TABLE cheques ADD CONSTRAINT cheques_currency_check CHECK (currency IN ('G
 ALTER TABLE ledger_entries DROP CONSTRAINT IF EXISTS ledger_entries_currency_check;
 ALTER TABLE ledger_entries ADD CONSTRAINT ledger_entries_currency_check
   CHECK (currency IN ('GHS', 'NGN', 'USD', 'USDC'));
+
+-- Session tokens are now stored as SHA-256 hex (64 chars). Expire any leftover plaintext values.
+UPDATE claim_sessions
+   SET expires_at = LEAST(expires_at, NOW()),
+       session_token = NULL
+ WHERE session_token IS NOT NULL
+   AND session_token !~ '^[0-9a-f]{64}$';
 `;
 
 export async function runMigrations(clientOrPool: pg.Pool | pg.PoolClient): Promise<void> {

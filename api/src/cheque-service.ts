@@ -17,6 +17,8 @@ import {
   generateClaimToken,
   hashClaimToken,
   generateSessionToken,
+  hashSessionToken,
+  hashOtp,
   transition,
   withTransaction,
   mapChequeRow,
@@ -753,7 +755,7 @@ export function registerChequeRoutes(deps: ChequeServiceDeps): void {
     await pool.query(
       `INSERT INTO claim_sessions (cheque_id, otp_hash, attempts, max_attempts, verified_at, expires_at, session_token)
        VALUES ($1, $2, 0, 5, NOW(), NOW() + INTERVAL '30 minutes', $3)`,
-      [found.cheque.id, 'verified', sessionToken]
+      [found.cheque.id, hashOtp(otp.trim(), env.OTP_SALT), hashSessionToken(sessionToken)]
     );
     return { sessionToken, expiresIn: 1800 };
   });
@@ -784,7 +786,7 @@ export function registerChequeRoutes(deps: ChequeServiceDeps): void {
           `SELECT id FROM claim_sessions
             WHERE cheque_id = $1 AND session_token = $2
               AND verified_at IS NOT NULL AND expires_at > NOW()`,
-          [cheque.id, sessionToken]
+          [cheque.id, hashSessionToken(sessionToken)]
         );
         if (!session.rowCount) {
           return reply.unauthorized('Invalid or expired verification session.');
