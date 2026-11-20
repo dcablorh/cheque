@@ -180,7 +180,11 @@ export default function ClaimPage() {
             <ErrorNote>{error}</ErrorNote>
             <button className="btn-primary w-full py-4" disabled={busy} onClick={() => run(async () => {
               try {
-                await publicApi.post(`/claim/${token}/otp/send`, {});
+                const res = await publicApi.post<{ skipped?: boolean }>(`/claim/${token}/otp/send`, {});
+                if (res.skipped) {
+                  setStep('destination');
+                  return;
+                }
                 setOtpSent(true);
                 setStep('verify');
               } catch (e) {

@@ -35,12 +35,26 @@ export function createOutboxWorker(deps: OutboxWorkerDependencies = {}): OutboxP
     if (!deps.emailClient) {
       throw new Error('No email client configured; cannot send cheque alert');
     }
-    const to = String((item.payload as any)?.to ?? '');
+    const payload = (item.payload ?? {}) as { to?: unknown; claimUrl?: unknown };
+    const to = typeof payload.to === 'string' ? payload.to : '';
+    const claimUrl = typeof payload.claimUrl === 'string' ? payload.claimUrl : '';
     if (!to) throw new Error('Missing recipient email in alert payload');
+    if (!claimUrl || claimUrl.includes('<token>')) {
+      throw new Error('Missing claim URL in alert payload');
+    }
+
+    const pool = getPool();
+    const stateRes = await pool.query(`SELECT state FROM cheques WHERE id = $1`, [item.aggregateId]);
+    const state = stateRes.rows[0]?.state as string | undefined;
+    if (state !== 'ACTIVE') {
+      logger.info(`[Outbox] Skipping cheque alert for ${item.aggregateId}; state is ${state ?? 'missing'}`);
+      return;
+    }
+
     await deps.emailClient.sendEmail({
       to,
       subject: 'You received a sencheq cheque',
-      text: `You have received a digital cheque. Open the link to claim it: ${process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3100'}/c/<token>`,
+      text: `You have received a digital cheque. Open the link to claim it: ${claimUrl}`,
     });
     logger.info(`[Outbox] Sent cheque alert email to ${to}`);
   });
