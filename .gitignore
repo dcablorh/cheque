@@ -17,6 +17,11 @@ Thumbs.db
 coverage/
 .turbo/
 .tmp/
+
+# Office lockfiles and tool-local config
+~$*
+.claude/
+/*.docx
 *.tsbuildinfo
 
 # Rust / Soroban build output

@@ -41,8 +41,10 @@ Each cheque shows the amount in words and figures, the recipient, the sender, a 
 | `docs/` | Product spec, implementation spec, contract spec, design system, settlement guides |
 
 All project documentation is consolidated in the **`docs/`** directory:
+- **[docs/SETUP.md](docs/SETUP.md)** — Manual setup guide (environment, database, email, deployment)
 - **[docs/cheque.md](docs/cheque.md)** — Digital Cheques for Ghana implementation spec
 - **[docs/SPEC.md](docs/SPEC.md)** — Core product specification
+- **[docs/PRD.md](docs/PRD.md)** — Product requirements (source document: `docs/sendcheq_PRD_v4.docx`)
 - **[docs/CONTRACT.md](docs/CONTRACT.md)** — Soroban smart contract specification
 - **[docs/DESIGN.md](docs/DESIGN.md)** — Visual design system and UI components
 - **[docs/moropay.md](docs/moropay.md)** — MoraPay offramp & onramp integration guide
