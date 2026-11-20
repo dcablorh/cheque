@@ -14,7 +14,7 @@ function withDatabase(url: string, database: string): string {
   return replaced;
 }
 
-describe('users.email migration on an existing database', () => {
+describe('users migration to email-only accounts on an existing database', () => {
   const dbName = `cheque_mig_${crypto.randomBytes(4).toString('hex')}`;
   let admin: pg.Pool;
   let pool: pg.Pool;
@@ -24,7 +24,8 @@ describe('users.email migration on an existing database', () => {
     await admin.query(`CREATE DATABASE ${dbName} OWNER cheque_user`);
     pool = new pg.Pool({ connectionString: withDatabase(SOURCE_URL, dbName) });
 
-    // Recreate the users table as it existed on main, before the email column.
+    // Recreate the users table as it existed before email login: phone-based with a
+    // contact check that required a phone.
     await pool.query('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"');
     await pool.query('CREATE EXTENSION IF NOT EXISTS "pgcrypto"');
     await pool.query(`
@@ -34,7 +35,8 @@ describe('users.email migration on an existing database', () => {
         name VARCHAR(255),
         pin_hash TEXT,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        CONSTRAINT users_contact_check CHECK (phone_e164 IS NOT NULL)
       )
     `);
     await pool.query(
@@ -51,29 +53,30 @@ describe('users.email migration on an existing database', () => {
     }
   });
 
-  it('makes phone_e164 nullable and allows email-only users after upgrade', async () => {
+  it('drops the legacy phone column and requires an email after upgrade', async () => {
     await runMigrations(pool);
 
+    // The legacy phone column is gone; the migrated user keeps their row.
     const existing = await pool.query(
-      `SELECT phone_e164, email FROM users WHERE id = $1`,
+      `SELECT email, name FROM users WHERE id = $1`,
       ['11111111-1111-1111-1111-111111111111']
     );
     expect(existing.rows).toHaveLength(1);
-    expect(existing.rows[0].phone_e164).toBe('+233241111111');
     expect(existing.rows[0].email).toBeNull();
+    expect(existing.rows[0].name).toBe('Existing Sender');
 
     const col = await pool.query(
-      `SELECT is_nullable FROM information_schema.columns
+      `SELECT column_name FROM information_schema.columns
         WHERE table_name = 'users' AND column_name = 'phone_e164'`
     );
-    expect(col.rows[0].is_nullable).toBe('YES');
+    expect(col.rows).toHaveLength(0);
 
+    // Email-only accounts work, and a user without any contact is rejected.
     const inserted = await pool.query(
-      `INSERT INTO users (email, name) VALUES ($1, $2) RETURNING phone_e164, email`,
+      `INSERT INTO users (email, name) VALUES ($1, $2) RETURNING email`,
       ['new-user@example.com', 'Email Only']
     );
     expect(inserted.rows[0].email).toBe('new-user@example.com');
-    expect(inserted.rows[0].phone_e164).toBeNull();
 
     await expect(
       pool.query(`INSERT INTO users (name) VALUES ($1)`, ['No Contact'])

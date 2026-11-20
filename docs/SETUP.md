@@ -74,16 +74,6 @@ CCTP_ATTESTATION_URL=https://iris-api-sandbox.circle.com/attestations
 # ────────────────────────────────────────────────────────────────
 NEXT_PUBLIC_API_URL=http://localhost:3001
 NEXT_PUBLIC_APP_URL=http://localhost:3100
-
-# ────────────────────────────────────────────────────────────────
-# Optional: WhatsApp / SMS / Webhooks (for production only)
-# ────────────────────────────────────────────────────────────────
-# WHATSAPP_API_TOKEN=
-# WHATSAPP_PHONE_NUMBER_ID=
-# WHATSAPP_VERIFY_TOKEN=
-# HUBTEL_CLIENT_ID=
-# HUBTEL_CLIENT_SECRET=
-# HUBTEL_SENDER_ID=
 ```
 
 **Important**: The frontend and API packages **do not** have their own `.env.local` files — they read from the workspace root.
@@ -206,7 +196,7 @@ stellar/cheque/
 │   ├── core/               # Shared business logic, migrations, ledger
 │   ├── shared/             # Env loading, config types
 │   ├── chain/              # Stellar/Soroban contract interactions
-│   └── notify/             # Email, WhatsApp, SMS notifications
+│   └── notify/             # Email delivery (Resend), OTP service
 ├── contract/               # Soroban smart contract (Rust)
 ├── scripts/                # Bootstrap, deploy, E2E test scripts
 ├── docker-compose.yml      # Postgres + Redis

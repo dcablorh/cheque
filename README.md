@@ -34,7 +34,7 @@ Each cheque shows the amount in words and figures, the recipient, the sender, a 
 | `api/` | Fastify API: cheques, claims, auth, configuration and the outbox worker |
 | `packages/core` | Domain logic: state machine, money, corridors, ledger, outbox, migrations |
 | `packages/chain` | Stellar and Soroban client, signing, idempotent chain operations |
-| `packages/notify` | Phone normalisation, OTP over WhatsApp with SMS fallback, auth tokens |
+| `packages/notify` | Email delivery (Resend), OTP service, auth tokens |
 | `packages/shared` | Environment parsing and logging |
 | `contract/cheque` | Soroban escrow contract (Rust) |
 | `scripts/` | Testnet bootstrap, contract deploy and end-to-end flows |
@@ -92,7 +92,7 @@ All settings live in `.env`. See `.env.example` for the full list and the commen
 
 - **Database and cache:** `DATABASE_URL`, `REDIS_URL`
 - **Stellar:** `STELLAR_NETWORK`, horizon and Soroban RPC URLs, USDC issuer, `CHEQUE_CONTRACT_ID`, and the testnet account keys
-- **Messaging:** WhatsApp Cloud API, SMS provider, and the email key for cheque notifications
+- **Email:** the Resend key for sender login OTP, payee claim verification and cheque notifications
 - **Pricing:** `ENABLED_CORRIDORS`, FX rates per corridor, and `FEE_BPS` (100 bps = 1%)
 - **Security:** `JWT_SECRET` and `OTP_SALT`. Change both before any shared deployment.
 

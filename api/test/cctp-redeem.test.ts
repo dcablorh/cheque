@@ -56,7 +56,7 @@ describe('CCTP redeem API and outbox', () => {
       app,
       pool,
       env,
-      authService: { verifyAccessToken: () => ({ sub: 'x', phone: 'x', role: 'sender' }) } as never,
+      authService: { verifyAccessToken: () => ({ sub: 'x', contact: 'x', role: 'sender' }) } as never,
       chainEnabled: false,
       settlementPublicKey: SETTLEMENT,
       cctpAdapter: adapter,
@@ -80,8 +80,8 @@ describe('CCTP redeem API and outbox', () => {
     const userId = crypto.randomUUID();
     const chequeId = crypto.randomUUID();
     const { rawToken, claimTokenHash, publicCode } = generateClaimToken();
-    const phone = `+23324${Math.floor(1_000_000 + Math.random() * 9_000_000)}`;
-    await pool.query(`INSERT INTO users (id, phone_e164, name) VALUES ($1, $2, $3)`, [userId, phone, 'Test Sender']);
+    const email = `sender-${crypto.randomUUID()}@example.com`;
+    await pool.query(`INSERT INTO users (id, email, name) VALUES ($1, $2, $3)`, [userId, email, 'Test Sender']);
     await pool.query(
       `INSERT INTO cheques (
           id, public_code, claim_token_hash, sender_id, payee_name,

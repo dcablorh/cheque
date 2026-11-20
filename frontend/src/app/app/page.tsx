@@ -21,7 +21,7 @@ import { DepositCard } from '@/components/DepositCard';
 import { WalletButton } from '@/components/WalletButton';
 import { shortAddress, useWallet } from '@/lib/wallet';
 import { ChequePaper, ErrorNote, Logo, Spinner, StatusPill } from '@/components/ui';
-import { COUNTRIES, COUNTRY_LIST, toE164, type CountryCode } from '@/lib/countries';
+import { COUNTRIES, COUNTRY_LIST, type CountryCode } from '@/lib/countries';
 
 const LINKS_KEY = 'cheque.links.v1';
 const readLinks = (): Record<string, string> => {
@@ -120,7 +120,7 @@ function SignIn({ onDone }: { onDone: () => void }) {
         '/auth/email/otp/verify',
         { email: email.trim(), otp: code, name: name.trim() || undefined }
       );
-      session.set({ accessToken: t.accessToken, refreshToken: t.refreshToken, phone: email.trim(), name: t.user?.name });
+      session.set({ accessToken: t.accessToken, refreshToken: t.refreshToken, email: email.trim(), name: t.user?.name });
       onDone();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Something went wrong.');
@@ -223,7 +223,7 @@ function Dashboard({ onSignOut }: { onSignOut: () => void }) {
         <Link href="/" className="shrink-0"><Logo /></Link>
         <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
           <WalletButton />
-          <span className="hidden max-w-[12rem] truncate text-sm text-ink-soft md:block">{s?.name ?? s?.phone}</span>
+          <span className="hidden max-w-[12rem] truncate text-sm text-ink-soft md:block">{s?.name ?? s?.email}</span>
           <button className="btn-ghost !px-3 !py-2.5" onClick={onSignOut} aria-label="Sign out" title="Sign out">
             <LogOut className="h-4 w-4" />
             <span className="hidden sm:inline">Sign out</span>

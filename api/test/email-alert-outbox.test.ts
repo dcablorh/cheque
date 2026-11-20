@@ -25,11 +25,11 @@ describe('Funded-cheque alert outbox handler', () => {
     const { rawToken, claimTokenHash, publicCode } = generateClaimToken();
     const payee = `alert-${crypto.randomBytes(6).toString('hex')}@example.com`;
     const claimUrl = `http://localhost:3100/c/${rawToken}`;
-    const phone = `+23324${Math.floor(1000000 + Math.random() * 9000000)}`;
+    const email = `sender-${crypto.randomBytes(6).toString('hex')}@example.com`;
 
-    await pool.query(`INSERT INTO users (id, phone_e164, name) VALUES ($1, $2, $3)`, [
+    await pool.query(`INSERT INTO users (id, email, name) VALUES ($1, $2, $3)`, [
       userId,
-      phone,
+      email,
       'Alert Sender',
     ]);
     await pool.query(

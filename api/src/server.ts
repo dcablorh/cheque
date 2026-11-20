@@ -9,17 +9,10 @@ import {
   runMigrations,
 } from '@cheque/core';
 import {
-  WhatsAppClient,
-  SmsClient,
-  PhoneOtpService,
   SenderAuthService,
-  normalizePhone,
-  PHONE_ERROR,
   OtpService,
   EmailClient,
   normalizeEmail,
-  WhatsAppDeliveryReceipt,
-  SmsDeliveryReceipt,
 } from '@cheque/notify';
 import { createOutboxWorker } from './outbox-worker.js';
 import { buildChainHandlerFromEnv } from './chain-runtime.js';
@@ -68,9 +61,9 @@ export async function buildApp() {
     const ip = request.ip || 'unknown';
     const path = request.url.split('?')[0];
     let result: { allowed: boolean; retryAfter: number } | null = null;
-    if (path === '/auth/otp/request' || path === '/auth/email/otp/request')
+    if (path === '/auth/email/otp/request')
       result = await rateLimiter.check(`rl:auth:req:${ip}`, 10, 60);
-    else if (path === '/auth/otp/verify' || path === '/auth/email/otp/verify')
+    else if (path === '/auth/email/otp/verify')
       result = await rateLimiter.check(`rl:auth:verify:${ip}`, 20, 60);
     else if (path.startsWith('/claim/') && (path.endsWith('/otp/send') || path.endsWith('/otp/verify')))
       result = await rateLimiter.check(`rl:claim:otp:${ip}`, 10, 60);
@@ -78,7 +71,6 @@ export async function buildApp() {
       result = await rateLimiter.check(`rl:claim:redeem:${ip}`, 20, 60);
     else if (path.startsWith('/claim/') && path.includes('/payout-quote'))
       result = await rateLimiter.check(`rl:claim:quote:${ip}`, 30, 60);
-    else if (path.startsWith('/webhooks/')) result = await rateLimiter.check(`rl:webhook:${ip}`, 60, 60);
     if (result && !result.allowed) {
       return reply.code(429).send({
         statusCode: 429,
@@ -102,41 +94,7 @@ export async function buildApp() {
     logger.error(`Database migration error on startup: ${msg}`);
   }
 
-  // Notification & Auth Clients (Real Meta & Real SMS clients)
-  const whatsAppClient = new WhatsAppClient({
-    apiToken: env.WHATSAPP_API_TOKEN || 'test_token',
-    phoneNumberId: env.WHATSAPP_PHONE_NUMBER_ID || 'test_phone_id',
-    businessAccountId: env.WHATSAPP_BUSINESS_ACCOUNT_ID,
-    appSecret: env.WHATSAPP_APP_SECRET || env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || 'test_secret',
-    webhookVerifyToken: env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || 'cheque_verify_token',
-  });
-
-  // Local development without messaging credentials: print codes to the API console instead of
-  // failing. Never active outside NODE_ENV=development, and only when no SMS key is configured.
-  const devConsoleDelivery = env.NODE_ENV === 'development' && !env.SMS_API_KEY;
-
-  const smsClient = devConsoleDelivery
-    ? ({
-        async sendSms(to: string, body: string) {
-          console.log(`
-[DEV SMS -> ${to}] ${body}
-`);
-          return { messageId: 'dev-console' };
-        },
-      } as unknown as SmsClient)
-    : new SmsClient({
-        provider: (env.SMS_PROVIDER as 'HUBTEL' | 'ARKESEL' | 'TWILIO') || 'HUBTEL',
-        apiKey: env.SMS_API_KEY,
-        apiSecret: env.SMS_API_SECRET,
-        senderId: env.SMS_SENDER_ID || 'CHEQUE',
-      });
-
-  const otpService = new PhoneOtpService({
-    salt: env.OTP_SALT || 'cheque_otp_salt_secret',
-    redisUrl: env.REDIS_URL,
-  });
-  await otpService.init();
-
+  // Notification & Auth Clients (email only; sender login and alerts go through Resend)
   const emailOtpService = new OtpService({
     salt: env.OTP_SALT,
     redisUrl: env.REDIS_URL,
@@ -168,7 +126,6 @@ ${params.text}
       jwtSecret: env.JWT_SECRET,
       redisUrl: env.REDIS_URL,
     },
-    otpService,
     pool,
     emailOtpService
   );
@@ -214,78 +171,7 @@ ${params.text}
     };
   });
 
-  // --- SENDER AUTHENTICATION ROUTES ---
-
-  // Request Phone Login OTP
-  app.post<{
-    Body: {
-      phone: string;
-      forceSms?: boolean;
-    };
-  }>('/auth/otp/request', async (request, reply) => {
-    const body = request.body as { phone?: unknown; forceSms?: unknown } | undefined;
-    if (!body || typeof body.phone !== 'string' || body.phone.trim() === '') {
-      return reply.badRequest('phone is required');
-    }
-    const { phone, forceSms } = body as { phone: string; forceSms?: boolean };
-    const ip = request.ip;
-    const deviceFp = request.headers['x-device-fingerprint'] as string | undefined;
-
-    const norm = normalizePhone(phone);
-    if (!norm.isValid) {
-      return reply.badRequest(`Invalid phone number: ${phone}. ${PHONE_ERROR}`);
-    }
-
-    try {
-      const res = await authService.requestLoginOtp({
-        phoneInput: norm.phoneE164,
-        whatsAppClient,
-        smsClient,
-        forceSms,
-        ipAddress: ip,
-        deviceFp,
-      });
-
-      return {
-        success: true,
-        phone: res.phoneE164,
-        channel: res.channel,
-        message: `Verification code sent via ${res.channel}.`,
-      };
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes('Too many requests') || msg.includes('Please wait')) {
-        return reply.tooManyRequests(msg);
-      }
-      return reply.badRequest(msg);
-    }
-  });
-
-  // Verify Phone Login OTP -> Returns JWT + Refresh Token
-  app.post<{
-    Body: {
-      phone: string;
-      otp: string;
-      name?: string;
-    };
-  }>('/auth/otp/verify', async (request, reply) => {
-    const body = request.body as { phone?: unknown; otp?: unknown; name?: unknown } | undefined;
-    if (!body || typeof body.phone !== 'string' || typeof body.otp !== 'string' || body.otp.trim() === '') {
-      return reply.badRequest('phone and otp are required');
-    }
-    const { phone, otp, name } = body as { phone: string; otp: string; name?: string };
-    try {
-      const tokens = await authService.verifyLoginOtp({
-        phoneInput: phone,
-        otp,
-        name,
-      });
-      return tokens;
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      return reply.unauthorized(msg);
-    }
-  });
+  // --- SENDER AUTHENTICATION ROUTES (email OTP) ---
 
   // --- EMAIL SENDER AUTHENTICATION ROUTES (PRD v4) ---
 
@@ -349,95 +235,6 @@ ${params.text}
       return reply.unauthorized(msg);
     }
   });
-
-  // --- WEBHOOKS ---
-
-  // Meta WhatsApp Webhook Verification (Hub Challenge)
-  app.get<{
-    Querystring: {
-      'hub.mode'?: string;
-      'hub.verify_token'?: string;
-      'hub.challenge'?: string;
-    };
-  }>('/webhooks/whatsapp', async (request, reply) => {
-    const mode = request.query['hub.mode'];
-    const token = request.query['hub.verify_token'];
-    const challenge = request.query['hub.challenge'];
-
-    const expectedToken = env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || 'cheque_verify_token';
-
-    if (mode === 'subscribe' && token === expectedToken) {
-      logger.info('WhatsApp webhook verified successfully');
-      return reply.send(challenge);
-    }
-
-    return reply.forbidden('Verification token mismatch');
-  });
-
-  // Meta WhatsApp Webhook Event Receiver (Delivery & Read receipts)
-  app.post('/webhooks/whatsapp', async (request, reply) => {
-    const signature = request.headers['x-hub-signature-256'] as string;
-    const rawBody = (request as any).rawBody || JSON.stringify(request.body);
-
-    const appSecret = env.WHATSAPP_APP_SECRET || env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || 'test_secret';
-
-    // Strict signature verification: reject missing or invalid signatures.
-    if (!signature || !whatsAppClient.verifyWebhookSignature(rawBody, signature, appSecret)) {
-      logger.warn('WhatsApp webhook signature verification failed');
-      return reply.unauthorized('Invalid webhook signature');
-    }
-
-    const receipts: WhatsAppDeliveryReceipt[] = whatsAppClient.parseDeliveryReceipts(request.body);
-    const client = await pool.connect();
-
-    try {
-      for (const r of receipts) {
-        const eventId = `wa-${r.messageId}-${r.status}`;
-        await client.query(
-          `
-          INSERT INTO webhook_events (id, provider, event_id, payload, processed, processed_at, created_at)
-          VALUES (uuid_generate_v4(), 'WHATSAPP', $1, $2, TRUE, NOW(), NOW())
-          ON CONFLICT (provider, event_id) DO NOTHING;
-          `,
-          [eventId, JSON.stringify(r)]
-        );
-        logger.info(`Recorded WhatsApp receipt for ${r.messageId}: status=${r.status}`);
-      }
-    } finally {
-      client.release();
-    }
-
-    return { status: 'received', receiptsCount: receipts.length };
-  });
-
-  // SMS Delivery Receipts Webhook
-  app.post<{
-    Params: { provider: string };
-  }>('/webhooks/sms/:provider', async (request, reply) => {
-    const provider = request.params.provider.toUpperCase() as 'HUBTEL' | 'ARKESEL' | 'TWILIO';
-    const receipt: SmsDeliveryReceipt | null = smsClient.parseDeliveryReceipt(request.body, provider);
-
-    if (receipt) {
-      const client = await pool.connect();
-      try {
-        const eventId = `sms-${provider}-${receipt.messageId}-${receipt.status}`;
-        await client.query(
-          `
-          INSERT INTO webhook_events (id, provider, event_id, payload, processed, processed_at, created_at)
-          VALUES (uuid_generate_v4(), $1, $2, $3, TRUE, NOW(), NOW())
-          ON CONFLICT (provider, event_id) DO NOTHING;
-          `,
-          [provider, eventId, JSON.stringify(receipt)]
-        );
-        logger.info(`Recorded SMS delivery receipt for ${receipt.messageId}: status=${receipt.status}`);
-      } finally {
-        client.release();
-      }
-    }
-
-    return { status: 'received' };
-  });
-
   registerChequeRoutes({
     app,
     pool,
@@ -456,9 +253,6 @@ ${params.text}
     app,
     env,
     outboxWorker,
-    whatsAppClient,
-    smsClient,
-    otpService,
     emailOtpService,
     emailClient,
     outboundEmail,

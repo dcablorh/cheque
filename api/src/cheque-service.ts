@@ -440,7 +440,7 @@ export function registerChequeRoutes(deps: ChequeServiceDeps): void {
   app.get('/me', async (request, reply) => {
     const userId = requireSender(request, reply);
     if (!userId) return;
-    const res = await pool.query(`SELECT id, phone_e164 AS phone, email, name FROM users WHERE id = $1`, [userId]);
+    const res = await pool.query(`SELECT id, email, name FROM users WHERE id = $1`, [userId]);
     return res.rows[0] ?? reply.notFound('User not found');
   });
 
@@ -845,7 +845,7 @@ export function registerChequeRoutes(deps: ChequeServiceDeps): void {
       return { success: true, skipped: true };
     }
     try {
-      const { otp } = await deps.emailOtpService.createOtpSession({ phoneInput: email });
+      const { otp } = await deps.emailOtpService.createOtpSession({ contact: email });
       await deps.emailClient.sendEmail({
         to: email,
         subject: 'Your sencheq verification code',

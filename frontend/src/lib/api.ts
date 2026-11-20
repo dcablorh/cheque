@@ -13,7 +13,7 @@ const KEY = 'cheque.session.v1';
 interface Session {
   accessToken: string;
   refreshToken: string;
-  phone: string;
+  email: string;
   name?: string;
 }
 

@@ -77,20 +77,7 @@ export const EnvSchema = z.object({
   SEEV_CASH_API_KEY: z.string().optional(),
   SEEV_CASH_WEBHOOK_SECRET: z.string().optional(),
 
-  // Meta WhatsApp Cloud API
-  WHATSAPP_API_TOKEN: z.string().optional(),
-  WHATSAPP_PHONE_NUMBER_ID: z.string().optional(),
-  WHATSAPP_BUSINESS_ACCOUNT_ID: z.string().optional(),
-  WHATSAPP_APP_SECRET: z.string().optional(),
-  WHATSAPP_WEBHOOK_VERIFY_TOKEN: z.string().optional(),
-
-  // Real SMS Fallback Provider
-  SMS_PROVIDER: z.enum(['HUBTEL', 'ARKESEL', 'TWILIO']).default('HUBTEL'),
-  SMS_API_KEY: z.string().optional(),
-  SMS_API_SECRET: z.string().optional(),
-  SMS_SENDER_ID: z.string().default('CHEQUE'),
-
-  // Transactional email (payee OTP + cheque-received notifications)
+  // Transactional email (sender login, payee OTP + cheque notifications)
   EMAIL_API_KEY: z.string().optional(),
 
   // Security & App
