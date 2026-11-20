@@ -433,6 +433,24 @@ function solanaAtaHook(owner: PublicKey): Buffer {
   return Buffer.concat([magic, version, length, ataFlag, Buffer.from(owner.toBytes())]);
 }
 
+/**
+ * SDK 17.2.1 cannot decode protocol-30 LedgerHeader XDR
+ * (`scpValue.ext.v` enum value 3). The JSON-RPC result still includes `sequence`.
+ */
+async function latestLedgerSequence(): Promise<number> {
+  const res = await fetch(SOROBAN_RPC_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getLatestLedger' }),
+  });
+  const body = (await res.json()) as { result?: { sequence?: number }; error?: unknown };
+  const sequence = body.result?.sequence;
+  if (!res.ok || typeof sequence !== 'number') {
+    throw new Error(`getLatestLedger failed: ${JSON.stringify(body).slice(0, 300)}`);
+  }
+  return sequence;
+}
+
 async function approveAndBurn(opts: {
   signer: Keypair;
   amount: bigint;
@@ -442,7 +460,7 @@ async function approveAndBurn(opts: {
   maxFeeStroops: bigint;
 }): Promise<string> {
   const caller = opts.signer.publicKey();
-  const { sequence } = await server.getLatestLedger();
+  const sequence = await latestLedgerSequence();
   console.log(`  approve TokenMessengerMinter for ${formatUsdc7(opts.amount)} USDC (expires ledger ${sequence + 100})`);
   const approveHash = await invoke(opts.signer, USDC_SAC, 'approve', [
     new Address(caller).toScVal(),
