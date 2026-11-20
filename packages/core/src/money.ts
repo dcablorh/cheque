@@ -1,5 +1,12 @@
 export const GHS_PESEWAS_FACTOR = 100;
 export const USDC_STROOPS_FACTOR = 10_000_000n;
+/** CCTP and most non-Stellar USDC use 6 decimals (micro-USDC). */
+export const USDC_MICRO_FACTOR = 1_000_000n;
+/** 1 micro-USDC = 10 stroops. The 7th Stellar decimal is dropped at the CCTP boundary. */
+export const STROOPS_PER_MICRO = 10n;
+/** Minimum net USDC (6 decimals) a cross-chain claim may deliver after the forwarding fee. */
+export const MIN_CCTP_NET_MICRO = 500_000n; // 0.50 USDC
+
 
 declare const BrandSymbol: unique symbol;
 
@@ -256,4 +263,38 @@ export function decimalToMinor(amount: string | number): number {
 /** Formats integer minor units for display, e.g. (123450) -> "1234.50". */
 export function minorToDecimalString(minor: number): string {
   return pesewasToGhsString(minor);
+}
+
+
+/**
+ * Drops the 7th Stellar decimal so the amount is representable in CCTP's 6-decimal units.
+ * Dust stays in the source Stellar account.
+ */
+export function quantizeStroopsToSixDecimals(stroops: Stroops | bigint | number): Stroops {
+  const big = typeof stroops === 'bigint' ? stroops : BigInt(stroops);
+  assertIntegerNonNegative(big, 'stroops');
+  return ((big / STROOPS_PER_MICRO) * STROOPS_PER_MICRO) as Stroops;
+}
+
+/** Converts 7-decimal stroops to 6-decimal micro-USDC, truncating the 7th decimal. */
+export function stroopsToMicroUsdc(stroops: Stroops | bigint | number): bigint {
+  const big = typeof stroops === 'bigint' ? stroops : BigInt(stroops);
+  assertIntegerNonNegative(big, 'stroops');
+  return big / STROOPS_PER_MICRO;
+}
+
+/** Converts 6-decimal micro-USDC to 7-decimal stroops. */
+export function microUsdcToStroops(micro: bigint | number): Stroops {
+  const big = typeof micro === 'bigint' ? micro : BigInt(micro);
+  assertIntegerNonNegative(big, 'micro-USDC');
+  return (big * STROOPS_PER_MICRO) as Stroops;
+}
+
+/** Formats 6-decimal micro-USDC, e.g. 1947031n -> "1.947031". */
+export function microUsdcToString(micro: bigint | number): string {
+  const big = typeof micro === 'bigint' ? micro : BigInt(micro);
+  assertIntegerNonNegative(big, 'micro-USDC');
+  const whole = big / USDC_MICRO_FACTOR;
+  const frac = (big % USDC_MICRO_FACTOR).toString().padStart(6, '0');
+  return `${whole}.${frac}`;
 }

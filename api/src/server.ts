@@ -24,6 +24,7 @@ import {
 import { createOutboxWorker } from './outbox-worker.js';
 import { buildChainHandlerFromEnv } from './chain-runtime.js';
 import { createChainAppliedHook, registerChequeRoutes, startSweeper } from './cheque-service.js';
+import { buildCctpAdapterFromEnv, buildCctpHandlerFromEnv } from './cctp-runtime.js';
 import { RateLimiter } from './rate-limit.js';
 
 export async function buildApp() {
@@ -75,6 +76,8 @@ export async function buildApp() {
       result = await rateLimiter.check(`rl:claim:otp:${ip}`, 10, 60);
     else if (path.startsWith('/claim/') && path.endsWith('/redeem'))
       result = await rateLimiter.check(`rl:claim:redeem:${ip}`, 20, 60);
+    else if (path.startsWith('/claim/') && path.includes('/payout-quote'))
+      result = await rateLimiter.check(`rl:claim:quote:${ip}`, 30, 60);
     else if (path.startsWith('/webhooks/')) result = await rateLimiter.check(`rl:webhook:${ip}`, 60, 60);
     if (result && !result.allowed) {
       return reply.code(429).send({
@@ -173,9 +176,11 @@ ${params.text}
 
   // Initialize and start BullMQ outbox worker
   const chain = await buildChainHandlerFromEnv(env, pool, createChainAppliedHook(pool));
+  const cctpAdapter = buildCctpAdapterFromEnv(env);
   const outboxWorker = createOutboxWorker({
     redisUrl: env.REDIS_URL,
     onChainOperation: chain?.handler,
+    onCctpOperation: buildCctpHandlerFromEnv(env, pool, cctpAdapter),
     emailClient,
   });
   outboxWorker.start();
@@ -443,6 +448,8 @@ ${params.text}
     fundingPublicKey: chain?.fundingPublicKey,
     chainClient: chain?.client,
     chainEnabled: !!chain,
+    settlementPublicKey: env.SETTLEMENT_ACCOUNT_PUBLIC,
+    cctpAdapter,
   });
 
   return {

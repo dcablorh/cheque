@@ -9,6 +9,7 @@ type EmailSender = Pick<EmailClient, 'sendEmail'>;
 export interface OutboxWorkerDependencies {
   redisUrl?: string;
   onChainOperation?: (item: OutboxItem) => Promise<void>;
+  onCctpOperation?: (item: OutboxItem) => Promise<void>;
   emailClient?: EmailClient;
 }
 
@@ -63,6 +64,14 @@ export function createOutboxWorker(deps: OutboxWorkerDependencies = {}): OutboxP
     }
     logger.info(`[Outbox] Executing chain operation for aggregate ${item.aggregateId}: topic=${item.topic}`);
     await deps.onChainOperation(item);
+  });
+
+  processor.registerHandler('chain:cctp', async (item: OutboxItem) => {
+    if (!deps.onCctpOperation) {
+      throw new Error(`No CCTP handler configured; cannot execute ${String((item.payload as { operation?: string }).operation)} for ${item.aggregateId}`);
+    }
+    logger.info(`[Outbox] Executing CCTP operation for aggregate ${item.aggregateId}`);
+    await deps.onCctpOperation(item);
   });
 
   processor.registerHandler('email:cheque:alert', createChequeAlertHandler(deps.emailClient));

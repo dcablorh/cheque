@@ -10,6 +10,8 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@noble/curves": "^2.4.0",
+    "@noble/hashes": "^2.4.0",
     "bullmq": "^6.3.11",
     "ioredis": "^5.11.1",
     "pg": "^8.23.1",

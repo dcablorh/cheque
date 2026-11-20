@@ -84,6 +84,7 @@ To run the whole web app in the browser with fake data and no API, set `NEXT_PUB
 | `pnpm deploy:contract` | Deploys the contract to testnet |
 | `pnpm e2e:contract` | Runs the contract flow end to end |
 | `pnpm e2e:wallet` | Runs the wallet funding flow end to end |
+| `pnpm e2e:cctp` | Creates a testnet cheque and claims it to Base or Solana via CCTP |
 
 ## Configuration
 
@@ -99,7 +100,7 @@ Never commit secret keys. The `.env` file is ignored by git.
 
 ## Status and known limits
 
-- Funding and USDC payouts run on the Stellar testnet. Mobile money (MTN, Telecel, AirtelTigo) and bank payouts go through a settlement adapter that only has a mock implementation so far.
+- Funding and USDC payouts run on the Stellar testnet. A cheque is always escrowed in USDC on Stellar (Soroban). Claimants can receive that USDC on Stellar, or bridge it to Base or Solana with Circle CCTP. Mobile money (MTN, Telecel, AirtelTigo) and bank payouts go through a settlement adapter that only has a mock implementation so far.
 - The FX rates in `.env.example` are placeholders. Replace them with live quotes before launch.
 - Regulatory approval for holding and paying out customer funds is still open. Settle it before any real money moves.
 
@@ -116,6 +117,77 @@ Never commit secret keys. The `.env` file is ignored by git.
 9. Optional demo mode: set `NEXT_PUBLIC_DEMO=1` in the frontend env.
 
 Useful: `pnpm test`, `pnpm build`, `pnpm lint`. Without Redis, OTP and IP rate-limit state fall back to in-memory stores for development. Cheque state, the ledger, and the outbox still require Postgres.
+
+
+## Network and contract IDs
+
+These IDs are on **Stellar Testnet**. Stellar is the source of funds: every cheque is locked in the Soroban escrow below, then either paid out as Stellar USDC or burned through Circle CCTP V2 (with the Forwarding Service) to Base Sepolia or Solana Devnet.
+
+### Stellar (source)
+
+| What | ID |
+|---|---|
+| Network | Testnet (`Test SDF Network ; September 2015`) |
+| Cheque escrow contract | `CD2WZT2QH7RABNKIRFHIRQGF63R5OBZNEOUZAQD4GOIP2X2FATCJDSKM` |
+| Circle USDC (classic issuer) | `GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5` |
+| Circle USDC (Stellar Asset Contract) | `CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA` |
+| CCTP TokenMessengerMinter | `CDNG7HXAPBWICI2E3AUBP3YZWZELJLYSB6F5CC7WLDTLTHVM74SLRTHP` |
+| CCTP MessageTransmitter | `CBJ6MTCKKZG73PMDZCJMSFRD7DQEMI4FKDH7CGDSV4W6FHCRBCQAVVJY` |
+| CCTP Forwarder | `CA66Q2WFBND6V4UEB7RD4SAXSVIWMD6RA4X3U32ELVFGXV5PJK4T4VSZ` |
+| Settlement account (receives escrow on cross-chain redeem, then burns) | `GC7NESFNIKPLWIYW2APKFSEXX54GXTFBNALMJ73LPJZGYKMIIIB3WYST` |
+| Funding account (platform create_cheque) | `GAYSXQKLWK7ZD4BMA3BAQPUF5LOSGNINMCKBWZ7WYD262XBAICKQ7JD7` |
+| CCTP domain (Stellar) | `27` |
+
+Contract deploy (20 Nov 2026, Africa/Accra):
+
+- WASM upload: [7632bfa35645d578f3ea8a9dbe01cd6981ab2dae7e79862515bffb4afe6750a5](https://stellar.expert/explorer/testnet/tx/7632bfa35645d578f3ea8a9dbe01cd6981ab2dae7e79862515bffb4afe6750a5)
+- Create: [f1588ce37039479f78179a477d9047e15d04b28ac6856e334fcb1619e9bc80d1](https://stellar.expert/explorer/testnet/tx/f1588ce37039479f78179a477d9047e15d04b28ac6856e334fcb1619e9bc80d1)
+- Init: [63ea719b933bfcfadde4de4bb3eaa7b811abebab9601c57532eb5b27f426b5ef](https://stellar.expert/explorer/testnet/tx/63ea719b933bfcfadde4de4bb3eaa7b811abebab9601c57532eb5b27f426b5ef)
+
+### Destination chains
+
+| Chain | Domain | USDC |
+|---|---|---|
+| Base Sepolia | `6` | `0x036CbD53842c5426634e7929541eC2318f3dCF7e` |
+| Solana Devnet | `5` | `4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU` |
+
+### Spike (direct settlement burns, 20 Nov 2026, Africa/Accra)
+
+2 USDC each, forwarded from Stellar.
+
+**Base Sepolia** (received 1.947031 USDC):
+
+- Approve: [a29712999948f65b81d9c355a45b4c4c0b48ce7bb02e0f150fdf86377d433243](https://stellar.expert/explorer/testnet/tx/a29712999948f65b81d9c355a45b4c4c0b48ce7bb02e0f150fdf86377d433243)
+- Burn: [9a4908d5f6b63b3fbf1a572255a965721fea91ca90dff9d929022ad554f2db6c](https://stellar.expert/explorer/testnet/tx/9a4908d5f6b63b3fbf1a572255a965721fea91ca90dff9d929022ad554f2db6c)
+- Mint: [0x49458849658f890a4a44949cb230d56e3bf8a071f25ac965ec1e1de62bff8c42](https://sepolia.basescan.org/tx/0x49458849658f890a4a44949cb230d56e3bf8a071f25ac965ec1e1de62bff8c42)
+
+**Solana Devnet** (received 1.786744 USDC, ATA created):
+
+- Approve: [e7c2d56e9a15a0c804d24ed5ab23a7c268b73fe506d693290e854af83cfad520](https://stellar.expert/explorer/testnet/tx/e7c2d56e9a15a0c804d24ed5ab23a7c268b73fe506d693290e854af83cfad520)
+- Burn: [dc75b32159aff31b5fe8ec0fd73f6a033833c5f5a6ccb87b48eaef943f028e28](https://stellar.expert/explorer/testnet/tx/dc75b32159aff31b5fe8ec0fd73f6a033833c5f5a6ccb87b48eaef943f028e28)
+- Mint: [3ubGJJyP3sWMCsGiy55neG52m2wUT3bpBapWnwtWhhC3MDj9xuvvegYB44UAazYChsyqL9HNifGudtCgYSvd6Jk5](https://explorer.solana.com/tx/3ubGJJyP3sWMCsGiy55neG52m2wUT3bpBapWnwtWhhC3MDj9xuvvegYB44UAazYChsyqL9HNifGudtCgYSvd6Jk5?cluster=devnet)
+
+### Product e2e (API + escrow + CCTP, 20 Nov 2026, Africa/Accra)
+
+US $5 cheques, claimed after email OTP. USDC was escrowed on Stellar, redeemed to the settlement account, then burned with the forwarding hook.
+
+Funding top-up (11 USDC, settlement → funding): [c466adc6b7fcb2482209fab05ac84ec8d9658b5f87a3f8bd4e2c33314f35b99a](https://stellar.expert/explorer/testnet/tx/c466adc6b7fcb2482209fab05ac84ec8d9658b5f87a3f8bd4e2c33314f35b99a)
+
+**Base Sepolia** — cheque `CHQ-63JV93` (`2c2f1c9e-71d9-417b-ae39-bd1f8c5db82c`), fee 0.052745 USDC, received 4.947255 USDC:
+
+- create_cheque: [557c0a6426e667d08f30c9cfde28390332b39f7e885dd02c00bc43222069d11a](https://stellar.expert/explorer/testnet/tx/557c0a6426e667d08f30c9cfde28390332b39f7e885dd02c00bc43222069d11a)
+- lock (to settlement): [fc76d0ed5093fc55debfde162bab40981e72ec874596bb9ab955dc1d0e5c886f](https://stellar.expert/explorer/testnet/tx/fc76d0ed5093fc55debfde162bab40981e72ec874596bb9ab955dc1d0e5c886f)
+- redeem (escrow → settlement): [b3de3d8f9aa19f464c580173b727918f18d929ef2a193a847d96a72441b627e1](https://stellar.expert/explorer/testnet/tx/b3de3d8f9aa19f464c580173b727918f18d929ef2a193a847d96a72441b627e1)
+- CCTP burn: [3471f17fbcf463d7e3c58b26ba600f5c29a792d817b53afa1c98477549f9663e](https://stellar.expert/explorer/testnet/tx/3471f17fbcf463d7e3c58b26ba600f5c29a792d817b53afa1c98477549f9663e)
+- Base mint: [0x285d584fc0ad9d567bf7469f67a986bbb297f98c56ffe78b7b0141a5718766cc](https://sepolia.basescan.org/tx/0x285d584fc0ad9d567bf7469f67a986bbb297f98c56ffe78b7b0141a5718766cc)
+
+**Solana Devnet** — cheque `CHQ-HSE4C5` (`28d9ddab-c1d6-4092-a48e-3a1a943cdfc0`), fee 0.105803 USDC, received 4.894197 USDC:
+
+- create_cheque: [e90527aab6a7d1953d01482f7af1bcbd75db35b4b3de53a14ef7b95800c30882](https://stellar.expert/explorer/testnet/tx/e90527aab6a7d1953d01482f7af1bcbd75db35b4b3de53a14ef7b95800c30882)
+- lock (to settlement): [5f833015405aa117a5fd22a99c5c5462d33950ad24918e3ab714bca08c04f251](https://stellar.expert/explorer/testnet/tx/5f833015405aa117a5fd22a99c5c5462d33950ad24918e3ab714bca08c04f251)
+- redeem (escrow → settlement): [41657d23fce8630a79f1eeb3594612c6fab743382b9139346dd9f9f5b427919e](https://stellar.expert/explorer/testnet/tx/41657d23fce8630a79f1eeb3594612c6fab743382b9139346dd9f9f5b427919e)
+- CCTP burn: [91f6fc91dc676c70f72a27694e3d5532db1545a7da689f481e58eb7d9d39816a](https://stellar.expert/explorer/testnet/tx/91f6fc91dc676c70f72a27694e3d5532db1545a7da689f481e58eb7d9d39816a)
+- Solana mint: [nQmkP3WpNkB1icDbNYxxngd8cxxVobx9gZRTrFLqvqPcKjbwfHWbcEwmVq9aCMJaZVce7x84E94qUXyHhYDKBSA](https://explorer.solana.com/tx/nQmkP3WpNkB1icDbNYxxngd8cxxVobx9gZRTrFLqvqPcKjbwfHWbcEwmVq9aCMJaZVce7x84E94qUXyHhYDKBSA?cluster=devnet)
 
 ## Contributing
 

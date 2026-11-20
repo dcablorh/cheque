@@ -193,3 +193,44 @@ export function toUsdc(local: number, perUsdc: string | number): number {
 export function fromUsdc(usdc: number, perUsdc: string | number): number {
   return Math.round(usdc * Number(perUsdc) * 100) / 100;
 }
+
+
+export type DestinationChain = 'stellar' | 'base' | 'solana';
+
+/** EVM address: 0x + 40 hex characters (checksum not enforced in the browser). */
+export function isEvmAddress(v: string): boolean {
+  return /^0x[0-9a-fA-F]{40}$/.test(v.trim());
+}
+
+/**
+ * Solana owner wallet (base58 public key). Token-account addresses are rejected
+ * later by the API (off-curve / ATA). This is a shape check only so the claim
+ * page does not import @cheque/core.
+ */
+export function isSolanaOwnerAddress(v: string): boolean {
+  const s = v.trim();
+  if (s.length < 32 || s.length > 44) return false;
+  if (!/^[1-9A-HJ-NP-Za-km-z]+$/.test(s)) return false;
+  return !isStellarAddress(s) && !isEvmAddress(s);
+}
+
+export function isDestinationAddress(chain: DestinationChain, v: string): boolean {
+  if (chain === 'stellar') return isStellarAddress(v);
+  if (chain === 'base') return isEvmAddress(v);
+  return isSolanaOwnerAddress(v);
+}
+
+export function explorerTxUrl(
+  chain: DestinationChain,
+  txHash: string,
+  network: string = 'TESTNET',
+): string {
+  const mainnet = network === 'PUBLIC';
+  if (chain === 'base') return mainnet ? `https://basescan.org/tx/${txHash}` : `https://sepolia.basescan.org/tx/${txHash}`;
+  if (chain === 'solana') {
+    return mainnet
+      ? `https://explorer.solana.com/tx/${txHash}`
+      : `https://explorer.solana.com/tx/${txHash}?cluster=devnet`;
+  }
+  return `https://stellar.expert/explorer/${mainnet ? 'public' : 'testnet'}/tx/${txHash}`;
+}

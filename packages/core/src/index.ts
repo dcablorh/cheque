@@ -1,3 +1,4 @@
+export * from './addresses.js';
 export * from './types.js';
 export * from './corridors.js';
 export * from './money.js';

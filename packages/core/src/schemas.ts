@@ -1,11 +1,9 @@
 import { z } from 'zod';
 import { CORRIDOR_CODES } from './corridors.js';
+import { STELLAR_ADDRESS_REGEX } from './addresses.js';
 
 // Ghana E.164 phone regex: +233 followed by 9 digits (e.g. +233241234567, +233501234567)
 export const GHANA_PHONE_REGEX = /^\+233\d{9}$/;
-
-// Stellar Public Key regex: G followed by 55 alphanumeric uppercase characters (56 total)
-export const STELLAR_ADDRESS_REGEX = /^G[A-Z2-7]{55}$/;
 
 export const CreateChequeSchema = z
   .object({
@@ -46,8 +44,11 @@ export const FundChequeSchema = z.object({
 
 export type FundChequeInput = z.infer<typeof FundChequeSchema>;
 
+export const DestinationChainSchema = z.enum(['stellar', 'base', 'solana']);
+
 export const ValidateDestinationSchema = z.object({
   type: z.enum(['MOMO', 'USDC', 'BANK']),
+  chain: DestinationChainSchema.optional(),
   network: z.enum(['MTN', 'TELECEL', 'AIRTELTIGO']).optional(),
   accountRef: z.string().trim().min(4).max(64),
   memo: z.string().trim().max(28).optional(),
@@ -56,9 +57,7 @@ export const ValidateDestinationSchema = z.object({
     if (data.type === 'MOMO') {
       return GHANA_PHONE_REGEX.test(data.accountRef) && !!data.network;
     }
-    if (data.type === 'USDC') {
-      return STELLAR_ADDRESS_REGEX.test(data.accountRef);
-    }
+    // Address shape for USDC is checked by validatePayoutDestination (chain-aware).
     return true;
   },
   {
@@ -72,6 +71,8 @@ export type ValidateDestinationInput = z.infer<typeof ValidateDestinationSchema>
 export const RedeemChequeSchema = z.object({
   destination: z.object({
     type: z.enum(['MOMO', 'USDC', 'BANK']),
+    /** Destination chain for USDC payouts. Defaults to Stellar. */
+    chain: DestinationChainSchema.optional(),
     network: z.enum(['MTN', 'TELECEL', 'AIRTELTIGO']).optional(),
     accountRef: z.string().trim().min(4).max(64),
     memo: z.string().trim().max(28).optional(),

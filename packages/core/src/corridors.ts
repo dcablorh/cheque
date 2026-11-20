@@ -1,3 +1,4 @@
+import { type DestinationChain, validateDestinationAddress } from './addresses.js';
 /**
  * Payment corridors: where a cheque is issued from, the currency the payee is paid in,
  * and how the payee can cash out. Adding a country means adding an entry here, an anchor
@@ -134,16 +135,16 @@ export function validateFaceAmount(corridor: Corridor, amount: number): string |
  */
 export function validatePayoutDestination(
   corridor: Corridor,
-  destination: { type: PayoutMethodType; accountRef: string; network?: string }
+  destination: { type: PayoutMethodType; accountRef: string; network?: string; chain?: DestinationChain }
 ): string | null {
   if (!corridor.payoutMethods.includes(destination.type)) {
     return `${destination.type} payouts are not available in ${corridor.name}. Choose ${corridor.payoutMethods.join(' or ')}.`;
   }
   switch (destination.type) {
-    case 'USDC':
-      return /^G[A-Z2-7]{55}$/.test(destination.accountRef)
-        ? null
-        : 'Enter a valid Stellar address (starts with G, 56 characters).';
+    case 'USDC': {
+      const chain: DestinationChain = destination.chain ?? 'stellar';
+      return validateDestinationAddress(chain, destination.accountRef);
+    }
     case 'MOMO':
       return validatePayeePhone(corridor, destination.accountRef) ?? (destination.network ? null : 'Choose a mobile money network.');
     case 'BANK':

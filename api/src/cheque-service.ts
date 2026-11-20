@@ -14,6 +14,12 @@ import {
   validatePayoutDestination,
   CORRIDORS,
   type FiatCurrency,
+  type DestinationChain,
+  quantizeStroopsToSixDecimals,
+  stroopsToMicroUsdc,
+  microUsdcToString,
+  MIN_CCTP_NET_MICRO,
+  explorerTxUrl,
   generateClaimToken,
   hashClaimToken,
   generateSessionToken,
@@ -35,7 +41,7 @@ import type { SenderAuthService } from '@cheque/notify';
 import { OtpService, EmailClient } from '@cheque/notify';
 import type { Env } from '@cheque/shared';
 import { logger } from '@cheque/shared';
-import { deriveChequeIdHex, type ChequeContractClient } from '@cheque/chain';
+import { deriveChequeIdHex, type ChequeContractClient, type CctpAdapter } from '@cheque/chain';
 import type { ChainOperationPayload } from './chain-handler.js';
 
 /** Contract defaults (docs/CONTRACT.md): cheques >= 50 USDC wait 15 min before redeem. */
@@ -98,6 +104,10 @@ export interface ChequeServiceDeps {
   /** Builds and relays wallet-signed deposits and cancels. */
   chainClient?: ChequeContractClient;
   chainEnabled: boolean;
+  /** Stellar account that receives escrow USDC on redeem before a CCTP burn (plan A). */
+  settlementPublicKey?: string;
+  /** Quotes and submits Stellar → Base/Solana CCTP transfers. */
+  cctpAdapter?: CctpAdapter;
 }
 
 function maskName(name: string): string {
@@ -175,6 +185,35 @@ async function enqueue(
   );
 }
 
+async function enqueueCctp(pool: Pool, chequeId: string, payload: Record<string, unknown>): Promise<void> {
+  await pool.query(
+    `INSERT INTO outbox (id, topic, aggregate_type, aggregate_id, payload, status, next_run_at, max_attempts, backoff_ms)
+     VALUES ($1, 'chain:cctp', 'cheque', $2, $3, 'PENDING', NOW(), 20, 5000)`,
+    [crypto.randomUUID(), chequeId, JSON.stringify(payload)]
+  );
+}
+
+export async function quoteCrossChainPayout(
+  adapter: CctpAdapter,
+  chain: Exclude<DestinationChain, 'stellar'>,
+  recipient: string,
+  amountStroops: bigint,
+) {
+  let includeRecipientSetup = false;
+  if (chain === 'solana') {
+    try {
+      const ata = adapter.deriveSolanaAta(recipient);
+      includeRecipientSetup = !(await adapter.ataExists(ata));
+    } catch {
+      includeRecipientSetup = true;
+    }
+  }
+  const quote = await adapter.quoteForwardFee(chain, { includeRecipientSetup, amountStroops });
+  const amountMicro = stroopsToMicroUsdc(amountStroops);
+  const netMicro = amountMicro - quote.forwardFeeMicro.med;
+  return { quote, amountMicro, netMicro, includeRecipientSetup };
+}
+
 /** Funds are on-chain: PENDING_FUNDING -> ACTIVE (idempotent). */
 async function activateFunded(pool: Pool, cheque: Cheque, source: string): Promise<void> {
   const moved = await moveIfStill(pool, cheque.id, 'PENDING_FUNDING', 'ACTIVE', {
@@ -220,7 +259,7 @@ export function createChainAppliedHook(pool: Pool) {
         break;
       }
 
-      case 'redeem':
+      case 'redeem': {
         await moveIfStill(pool, chequeId, 'AUTHORIZED', 'SETTLING', {
           ledgerTx: createSettlementPendingTransaction({
             chequeId,
@@ -228,19 +267,35 @@ export function createChainAppliedHook(pool: Pool) {
             currency: cheque.currency,
           }),
         });
-        await moveIfStill(pool, chequeId, 'SETTLING', 'SETTLED', {
-          ledgerTx: createSettlementConfirmedTransaction({
-            chequeId,
-            amountMinor: cheque.faceAmountMinor,
-            currency: cheque.currency,
-          }),
-        });
-        await pool.query(
-          `UPDATE payouts SET status = 'CONFIRMED', updated_at = NOW()
-            WHERE cheque_id = $1 AND status IN ('PENDING','SENT')`,
-          [chequeId]
+        const destRes = await pool.query(
+          `SELECT chain FROM destinations WHERE cheque_id = $1 ORDER BY created_at DESC LIMIT 1`,
+          [chequeId],
         );
+        const chain = (destRes.rows[0]?.chain as DestinationChain | undefined) ?? 'stellar';
+        await pool.query(
+          `UPDATE payouts SET status = 'SENT', updated_at = NOW()
+            WHERE cheque_id = $1 AND status = 'PENDING'`,
+          [chequeId],
+        );
+        if (chain === 'stellar') {
+          await moveIfStill(pool, chequeId, 'SETTLING', 'SETTLED', {
+            ledgerTx: createSettlementConfirmedTransaction({
+              chequeId,
+              amountMinor: cheque.faceAmountMinor,
+              currency: cheque.currency,
+            }),
+          });
+          await pool.query(
+            `UPDATE payouts SET status = 'CONFIRMED', updated_at = NOW()
+              WHERE cheque_id = $1 AND status IN ('PENDING','SENT')`,
+            [chequeId],
+          );
+        } else {
+          // USDC has left Soroban escrow into the settlement account; the outbox burns via CCTP.
+          await enqueueCctp(pool, chequeId, { operation: 'cctp_burn' });
+        }
         break;
+      }
 
       case 'refund':
         await moveIfStill(pool, chequeId, 'REFUNDING', 'REFUNDED', {
@@ -426,7 +481,7 @@ export function registerChequeRoutes(deps: ChequeServiceDeps): void {
     const face = decimalToMinor(amount);
     const fee = Math.floor((face * env.FEE_BPS) / 10_000);
     const rate = fxPerUsd(env, currency);
-    const stroops = convertFiatMinorToStroops(face, rate);
+    const stroops = quantizeStroopsToSixDecimals(convertFiatMinorToStroops(face, rate));
     if (stroops < MIN_STROOPS) {
       const minFace = convertStroopsToFiatMinor(MIN_STROOPS, rate, 'ROUND_UP');
       return reply.badRequest(`Minimum ${currency} cheque amount is ${minorToDecimalString(minFace)}`);
@@ -760,6 +815,55 @@ export function registerChequeRoutes(deps: ChequeServiceDeps): void {
     return { sessionToken, expiresIn: 1800 };
   });
 
+
+  app.get<{ Params: { token: string }; Querystring: { chain?: string } }>(
+    '/claim/:token/payout-quote',
+    async (request, reply) => {
+      const found = await loadByToken(pool, request.params.token);
+      if (!found) return reply.notFound('This cheque link is not valid.');
+      const rawChain = String(request.query.chain ?? 'stellar').toLowerCase();
+      if (rawChain !== 'stellar' && rawChain !== 'base' && rawChain !== 'solana') {
+        return reply.badRequest('chain must be stellar, base, or solana');
+      }
+      const chain: DestinationChain = rawChain;
+      const amountStroops = quantizeStroopsToSixDecimals(BigInt(found.cheque.usdcAmountStroops ?? 0));
+      const amountMicro = stroopsToMicroUsdc(amountStroops);
+      if (chain === 'stellar') {
+        return {
+          chain,
+          amountUsdc: microUsdcToString(amountMicro),
+          feeUsdc: '0.000000',
+          netUsdc: microUsdcToString(amountMicro),
+          includeRecipientSetup: false,
+          minNetUsdc: microUsdcToString(MIN_CCTP_NET_MICRO),
+        };
+      }
+      if (!deps.cctpAdapter) {
+        return reply.serviceUnavailable('Cross-chain quotes are not configured yet.');
+      }
+      const recipient = typeof (request.query as { address?: string }).address === 'string'
+        ? (request.query as { address?: string }).address!.trim()
+        : '';
+      const quoted = await quoteCrossChainPayout(
+        deps.cctpAdapter,
+        chain,
+        recipient || (chain === 'solana' ? '11111111111111111111111111111111' : '0x0000000000000000000000000000000000000001'),
+        amountStroops,
+      );
+      // If no address was provided, do not use a dummy Solana ATA-setup quote as authoritative —
+      // still return the fee (setup-inclusive is the conservative default).
+      return {
+        chain,
+        amountUsdc: microUsdcToString(quoted.amountMicro),
+        feeUsdc: microUsdcToString(quoted.quote.forwardFeeMicro.med),
+        netUsdc: microUsdcToString(quoted.netMicro < 0n ? 0n : quoted.netMicro),
+        includeRecipientSetup: quoted.includeRecipientSetup,
+        minNetUsdc: microUsdcToString(MIN_CCTP_NET_MICRO),
+        sufficient: quoted.netMicro >= MIN_CCTP_NET_MICRO,
+      };
+    }
+  );
+
   app.post<{ Params: { token: string } }>(
     '/claim/:token/redeem',
     async (request, reply) => {
@@ -793,7 +897,11 @@ export function registerChequeRoutes(deps: ChequeServiceDeps): void {
         }
       }
 
-      const payoutError = validatePayoutDestination(getCorridor(cheque.corridor), destination);
+      const chain: DestinationChain = destination.chain ?? 'stellar';
+      const payoutError = validatePayoutDestination(getCorridor(cheque.corridor), {
+        ...destination,
+        chain,
+      });
       if (payoutError) return reply.badRequest(payoutError);
 
       if (destination.type === 'MOMO' || destination.type === 'BANK') {
@@ -801,7 +909,7 @@ export function registerChequeRoutes(deps: ChequeServiceDeps): void {
         return reply.code(501).send({
           statusCode: 501,
           error: 'Not Implemented',
-          message: `${destination.type === 'MOMO' ? 'Mobile money' : 'Bank'} payouts for ${getCorridor(cheque.corridor).name} are not live yet. Choose a USDC wallet.`,
+          message: `${destination.type === 'MOMO' ? 'Mobile money' : 'Bank'} payouts for ${getCorridor(cheque.corridor).name} are not live yet. Choose a USDC wallet on Stellar, Base, or Solana.`,
         });
       }
 
@@ -812,23 +920,46 @@ export function registerChequeRoutes(deps: ChequeServiceDeps): void {
       if (cheque.state !== 'ACTIVE') return reply.conflict(`Cheque is ${cheque.state.toLowerCase().replace('_', ' ')}; it can't be redeemed now.`);
       if (cheque.expiresAt.getTime() <= Date.now()) return reply.conflict('This cheque has expired.');
 
-      const trustline = await hasUsdcTrustline(env, destination.accountRef);
-      if (trustline === false) {
-        return reply.badRequest(
-          "This wallet can't receive USDC yet (no USDC trustline). Add USDC to the wallet first, or use another address."
-        );
+      const amountStroops = quantizeStroopsToSixDecimals(BigInt(cheque.usdcAmountStroops ?? 0));
+      let feeQuoteMinor: bigint | null = null;
+      let netAmountMinor: bigint | null = null;
+
+      if (chain === 'stellar') {
+        const trustline = await hasUsdcTrustline(env, destination.accountRef);
+        if (trustline === false) {
+          return reply.badRequest(
+            "This wallet can't receive USDC yet (no USDC trustline). Add USDC to the wallet first, or use another address."
+          );
+        }
+      } else {
+        if (!deps.settlementPublicKey || !deps.cctpAdapter) {
+          return reply.serviceUnavailable(
+            'Cross-chain USDC claims are not configured yet. You can still claim to a Stellar USDC address.',
+          );
+        }
+        const quoted = await quoteCrossChainPayout(deps.cctpAdapter, chain, destination.accountRef, amountStroops);
+        if (quoted.netMicro < MIN_CCTP_NET_MICRO) {
+          return reply.badRequest(
+            `After the cross-chain forwarding fee (${microUsdcToString(quoted.quote.forwardFeeMicro.med)} USDC) ` +
+              `this cheque would deliver less than ${microUsdcToString(MIN_CCTP_NET_MICRO)} USDC. Claim to Stellar USDC instead, or contact the sender.`,
+          );
+        }
+        feeQuoteMinor = quoted.quote.forwardFeeMicro.med;
+        netAmountMinor = quoted.netMicro;
       }
+
+      const lockTo = chain === 'stellar' ? destination.accountRef : deps.settlementPublicKey!;
 
       try {
         await withTransaction(async (client) => {
           const dest = await client.query(
-            `INSERT INTO destinations (cheque_id, type, account_ref, memo) VALUES ($1,'USDC',$2,$3) RETURNING id`,
-            [cheque.id, destination.accountRef, destination.memo ?? null]
+            `INSERT INTO destinations (cheque_id, type, account_ref, memo, chain) VALUES ($1,'USDC',$2,$3,$4) RETURNING id`,
+            [cheque.id, destination.accountRef, destination.memo ?? null, chain]
           );
           await client.query(
-            `INSERT INTO payouts (cheque_id, destination_id, status, idempotency_key, amount_minor)
-             VALUES ($1,$2,'PENDING',$3,$4)`,
-            [cheque.id, dest.rows[0].id, idempotencyKey, cheque.faceAmountMinor]
+            `INSERT INTO payouts (cheque_id, destination_id, status, idempotency_key, amount_minor, dest_chain, fee_quote_minor, net_amount_minor)
+             VALUES ($1,$2,'PENDING',$3,$4,$5,$6,$7)`,
+            [cheque.id, dest.rows[0].id, idempotencyKey, cheque.faceAmountMinor, chain, feeQuoteMinor?.toString() ?? null, netAmountMinor?.toString() ?? null]
           );
           await transition(
             {
@@ -837,12 +968,12 @@ export function registerChequeRoutes(deps: ChequeServiceDeps): void {
               toState: 'AUTHORIZED',
               actor: 'RECIPIENT',
               expectedVersion: cheque.version,
-              auditPayload: { destinationType: 'USDC' },
+              auditPayload: { destinationType: 'USDC', chain },
               outboxItems: [
                 {
                   topic: 'chain:contract:submit',
                   aggregateType: 'cheque',
-                  payload: { operation: 'lock', to: destination.accountRef, lockSecs: LOCK_SECS },
+                  payload: { operation: 'lock', to: lockTo, lockSecs: LOCK_SECS },
                 },
               ],
             },
@@ -852,7 +983,12 @@ export function registerChequeRoutes(deps: ChequeServiceDeps): void {
       } catch (e) {
         return reply.conflict((e as Error).message);
       }
-      return reply.code(202).send({ state: 'AUTHORIZED' });
+      return reply.code(202).send({
+        state: 'AUTHORIZED',
+        chain,
+        feeUsdc: feeQuoteMinor != null ? microUsdcToString(feeQuoteMinor) : null,
+        netUsdc: netAmountMinor != null ? microUsdcToString(netAmountMinor) : null,
+      });
     }
   );
 
@@ -860,20 +996,50 @@ export function registerChequeRoutes(deps: ChequeServiceDeps): void {
     const found = await loadByToken(pool, request.params.token);
     if (!found) return reply.notFound('This cheque link is not valid.');
     const { cheque } = found;
-    const [dest, tx] = await Promise.all([
-      pool.query(`SELECT account_ref FROM destinations WHERE cheque_id = $1 ORDER BY created_at DESC LIMIT 1`, [
-        cheque.id,
-      ]),
+    const [dest, tx, payout] = await Promise.all([
+      pool.query(
+        `SELECT account_ref, chain FROM destinations WHERE cheque_id = $1 ORDER BY created_at DESC LIMIT 1`,
+        [cheque.id],
+      ),
       pool.query(
         `SELECT tx_hash FROM chain_txs WHERE cheque_id = $1 AND operation = 'redeem' AND status = 'CONFIRMED' LIMIT 1`,
         [cheque.id]
       ),
+      pool.query(
+        `SELECT dest_chain, fee_quote_minor, net_amount_minor, cctp_burn_tx, cctp_forward_tx, status, last_error
+           FROM payouts WHERE cheque_id = $1 ORDER BY created_at DESC LIMIT 1`,
+        [cheque.id],
+      ),
     ]);
     const acct: string | undefined = dest.rows[0]?.account_ref;
+    const chain: DestinationChain = (dest.rows[0]?.chain as DestinationChain | undefined) ?? 'stellar';
+    const po = payout.rows[0] as
+      | {
+          dest_chain?: string;
+          fee_quote_minor?: string | null;
+          net_amount_minor?: string | null;
+          cctp_burn_tx?: string | null;
+          cctp_forward_tx?: string | null;
+          status?: string;
+          last_error?: string | null;
+        }
+      | undefined;
+    const destTx = po?.cctp_forward_tx ?? (chain === 'stellar' ? (tx.rows[0]?.tx_hash as string | undefined) : undefined);
+    const feeMinor = po?.fee_quote_minor != null ? BigInt(po.fee_quote_minor) : null;
+    const netMinor = po?.net_amount_minor != null ? BigInt(po.net_amount_minor) : null;
     return {
       ...publicView(cheque, found.senderName),
       destination: acct ? `${acct.slice(0, 4)}…${acct.slice(-4)}` : null,
-      txHash: tx.rows[0]?.tx_hash ?? null,
+      destinationChain: chain,
+      txHash: destTx ?? tx.rows[0]?.tx_hash ?? null,
+      burnTxHash: po?.cctp_burn_tx ?? null,
+      forwardTxHash: po?.cctp_forward_tx ?? null,
+      explorerUrl: destTx ? explorerTxUrl(chain, destTx, env.STELLAR_NETWORK) : null,
+      stellarRedeemTx: tx.rows[0]?.tx_hash ?? null,
+      feeUsdc: feeMinor != null ? microUsdcToString(feeMinor) : null,
+      netUsdc: netMinor != null ? microUsdcToString(netMinor) : null,
+      payoutStatus: po?.status ?? null,
+      payoutError: po?.status === 'FAILED' ? po.last_error ?? 'Payout failed; funds are in the settlement account for manual recovery.' : null,
       network: env.STELLAR_NETWORK,
     };
   });
