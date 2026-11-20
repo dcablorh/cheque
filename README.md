@@ -48,7 +48,6 @@ All project documentation is consolidated in the **`docs/`** directory:
 - **[docs/CONTRACT.md](docs/CONTRACT.md)** — Soroban smart contract specification
 - **[docs/DESIGN.md](docs/DESIGN.md)** — Visual design system and UI components
 - **[docs/moropay.md](docs/moropay.md)** — MoraPay offramp & onramp integration guide
-- **[docs/SEEVCASH_FINDINGS.md](docs/SEEVCASH_FINDINGS.md)** — SeevCash Stellar Anchor findings
 - **[docs/morapay/](docs/morapay/README.md)** — Mirrored MoraPay developer documentation
 
 ## Quick start

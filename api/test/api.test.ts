@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import crypto from 'node:crypto';
 import { FastifyInstance } from 'fastify';
-import { buildApp } from '../src/server.js';
+import { buildApp } from '../src/app.js';
 import { getPool, generateClaimToken, hashSessionToken } from '@cheque/core';
 
 describe('Apps/API Authentication & Webhooks Integration Tests', () => {
@@ -21,7 +21,7 @@ describe('Apps/API Authentication & Webhooks Integration Tests', () => {
   it('GET /health returns healthy database and service info', async () => {
     const res = await app.inject({
       method: 'GET',
-      url: '/health',
+      url: '/api/health',
     });
 
     expect(res.statusCode).toBe(200);
@@ -37,7 +37,7 @@ describe('Apps/API Authentication & Webhooks Integration Tests', () => {
     it('POST /auth/email/otp/request rejects an invalid email', async () => {
       const res = await app.inject({
         method: 'POST',
-        url: '/auth/email/otp/request',
+        url: '/api/auth/email/otp/request',
         payload: { email: 'not-an-email' },
       });
       expect(res.statusCode).toBe(400);
@@ -47,7 +47,7 @@ describe('Apps/API Authentication & Webhooks Integration Tests', () => {
     it('POST /auth/email/otp/request sends a verification code', async () => {
       const res = await app.inject({
         method: 'POST',
-        url: '/auth/email/otp/request',
+        url: '/api/auth/email/otp/request',
         payload: { email: testEmail },
       });
       expect(res.statusCode).toBe(200);
@@ -63,7 +63,7 @@ describe('Apps/API Authentication & Webhooks Integration Tests', () => {
     it('POST /auth/email/otp/request enforces resend cooldown', async () => {
       const res = await app.inject({
         method: 'POST',
-        url: '/auth/email/otp/request',
+        url: '/api/auth/email/otp/request',
         payload: { email: testEmail },
       });
       expect(res.statusCode).toBe(429);
@@ -73,7 +73,7 @@ describe('Apps/API Authentication & Webhooks Integration Tests', () => {
     it('POST /auth/email/otp/verify fails on an incorrect OTP', async () => {
       const res = await app.inject({
         method: 'POST',
-        url: '/auth/email/otp/verify',
+        url: '/api/auth/email/otp/verify',
         payload: { email: testEmail, otp: '000000' },
       });
       expect(res.statusCode).toBe(401);
@@ -86,7 +86,7 @@ describe('Apps/API Authentication & Webhooks Integration Tests', () => {
 
       const res = await app.inject({
         method: 'POST',
-        url: '/auth/email/otp/verify',
+        url: '/api/auth/email/otp/verify',
         payload: { email: fresh, otp, name: 'Ama Owusu' },
       });
       expect(res.statusCode).toBe(200);
@@ -108,7 +108,7 @@ describe('Apps/API Authentication & Webhooks Integration Tests', () => {
 
       const res = await app.inject({
         method: 'POST',
-        url: '/auth/email/otp/verify',
+        url: '/api/auth/email/otp/verify',
         payload: { email: fresh, otp },
       });
       expect(res.statusCode).toBe(200);
@@ -116,7 +116,7 @@ describe('Apps/API Authentication & Webhooks Integration Tests', () => {
 
       const refreshRes = await app.inject({
         method: 'POST',
-        url: '/auth/refresh',
+        url: '/api/auth/refresh',
         payload: { refreshToken: body.refreshToken },
       });
       expect(refreshRes.statusCode).toBe(200);

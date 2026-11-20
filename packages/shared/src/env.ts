@@ -72,13 +72,11 @@ export const EnvSchema = z.object({
   ENABLED_CORRIDORS: z.string().default('GH,NG,US'),
   FEE_BPS: z.coerce.number().int().min(0).max(1000).default(100),
 
-  // SeevCash Sandbox & Webhook
-  SEEV_CASH_BASE_URL: z.string().url().optional(),
-  SEEV_CASH_API_KEY: z.string().optional(),
-  SEEV_CASH_WEBHOOK_SECRET: z.string().optional(),
-
   // Transactional email (sender login, payee OTP + cheque notifications)
   EMAIL_API_KEY: z.string().optional(),
+
+  // Secret for the cron-triggered /api/internal/tick endpoint (Vercel sends it as a Bearer token)
+  CRON_SECRET: z.string().optional(),
 
   // Security & App
   JWT_SECRET: z.string().min(32).default('development_jwt_secret_must_be_changed_in_prod'),

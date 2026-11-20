@@ -446,40 +446,6 @@ describe('Real PostgreSQL Integration & Double-Entry Ledger Property Tests', () 
     }
   });
 
-  it('verifies unique webhook_events(provider, event_id)', async () => {
-    const client = await pool.connect();
-    const eventId = `evt-${Date.now()}`;
-
-    try {
-      await client.query(
-        `
-        INSERT INTO webhook_events (id, provider, event_id, payload)
-        VALUES (uuid_generate_v4(), 'SEEVCASH', $1, '{"status":"ok"}');
-        `,
-        [eventId]
-      );
-
-      // Duplicate must fail
-      let duplicateCaught = false;
-      try {
-        await client.query(
-          `
-          INSERT INTO webhook_events (id, provider, event_id, payload)
-          VALUES (uuid_generate_v4(), 'SEEVCASH', $1, '{"status":"ok2"}');
-          `,
-          [eventId]
-        );
-      } catch (err: any) {
-        duplicateCaught = err.code === '23505';
-      }
-
-      expect(duplicateCaught).toBe(true);
-    } finally {
-      await client.query('DELETE FROM webhook_events WHERE event_id = $1;', [eventId]).catch(() => {});
-      client.release();
-    }
-  });
-
   it('processes outbox items with FOR UPDATE SKIP LOCKED, backoff, and dead-lettering', async () => {
     const client = await pool.connect();
     const outboxId = crypto.randomUUID();

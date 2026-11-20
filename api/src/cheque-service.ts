@@ -342,56 +342,68 @@ export function createChainAppliedHook(pool: Pool, network: 'TESTNET' | 'PUBLIC'
 }
 
 /** Periodic housekeeping: expire unclaimed cheques. */
+/**
+ * Expires every ACTIVE cheque past its expiry, queues the on-chain refund, and moves the
+ * cheque to REFUNDING. Returns how many cheques were swept. Used by the interval sweeper
+ * and by the cron-ticked /api/internal/tick endpoint on Vercel.
+ */
+export async function sweepExpiredCheques(pool: Pool): Promise<number> {
+  const due = await pool.query(
+    `SELECT id, expires_at FROM cheques WHERE state = 'ACTIVE' AND expires_at <= NOW() LIMIT 50`
+  );
+  let swept = 0;
+  for (const r of due.rows) {
+    try {
+      const moved = await moveIfStill(pool, r.id, 'ACTIVE', 'EXPIRED', {
+        context: { now: new Date(), expiresAt: new Date(r.expires_at) },
+      });
+      if (!moved) continue;
+      const cheque = await loadById(pool, r.id);
+      if (!cheque) continue;
+      await withTransaction(async (client) => {
+        await client.query(
+          `INSERT INTO refunds (cheque_id, method, status, amount_minor, reason)
+           VALUES ($1, 'USDC', 'PENDING', $2, 'cheque expired unclaimed')`,
+          [r.id, cheque.faceAmountMinor]
+        );
+        await transition(
+          {
+            chequeId: r.id,
+            fromState: 'EXPIRED',
+            toState: 'REFUNDING',
+            actor: 'SYSTEM',
+            expectedVersion: cheque.version,
+            ledgerTx: createRefundPendingTransaction({
+              chequeId: r.id,
+              amountMinor: cheque.faceAmountMinor,
+              currency: cheque.currency,
+            }),
+            outboxItems: [
+              {
+                topic: 'chain:contract:submit',
+                aggregateType: 'cheque',
+                payload: { operation: 'refund' },
+              },
+            ],
+          },
+          client
+        );
+      });
+      swept += 1;
+    } catch (e) {
+      logger.warn(`[sweeper] expire ${r.id}: ${(e as Error).message}`);
+    }
+  }
+  return swept;
+}
+
 export function startSweeper(pool: Pool, intervalMs = 30_000): () => void {
   let running = false;
   const tick = async () => {
     if (running) return;
     running = true;
     try {
-      const due = await pool.query(
-        `SELECT id, expires_at FROM cheques WHERE state = 'ACTIVE' AND expires_at <= NOW() LIMIT 50`
-      );
-      for (const r of due.rows) {
-        try {
-          const moved = await moveIfStill(pool, r.id, 'ACTIVE', 'EXPIRED', {
-            context: { now: new Date(), expiresAt: new Date(r.expires_at) },
-          });
-          if (!moved) continue;
-          const cheque = await loadById(pool, r.id);
-          if (!cheque) continue;
-          await withTransaction(async (client) => {
-            await client.query(
-              `INSERT INTO refunds (cheque_id, method, status, amount_minor, reason)
-               VALUES ($1, 'USDC', 'PENDING', $2, 'cheque expired unclaimed')`,
-              [r.id, cheque.faceAmountMinor]
-            );
-            await transition(
-              {
-                chequeId: r.id,
-                fromState: 'EXPIRED',
-                toState: 'REFUNDING',
-                actor: 'SYSTEM',
-                expectedVersion: cheque.version,
-                ledgerTx: createRefundPendingTransaction({
-                  chequeId: r.id,
-                  amountMinor: cheque.faceAmountMinor,
-                  currency: cheque.currency,
-                }),
-                outboxItems: [
-                  {
-                    topic: 'chain:contract:submit',
-                    aggregateType: 'cheque',
-                    payload: { operation: 'refund' },
-                  },
-                ],
-              },
-              client
-            );
-          });
-        } catch (e) {
-          logger.warn(`[sweeper] expire ${r.id}: ${(e as Error).message}`);
-        }
-      }
+      await sweepExpiredCheques(pool);
     } catch (e) {
       logger.warn(`[sweeper] tick failed: ${(e as Error).message}`);
     } finally {
