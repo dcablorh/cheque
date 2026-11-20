@@ -72,8 +72,6 @@ pnpm dev
 
 Open http://localhost:3100. The API runs its database migrations on start.
 
-To run the whole web app in the browser with fake data and no API, set `NEXT_PUBLIC_DEMO=1` in the frontend environment.
-
 ### Useful commands
 
 | Command | Does |
@@ -114,7 +112,7 @@ Never commit secret keys. The `.env` file is ignored by git.
 6. `pnpm build:contract && pnpm deploy:contract`
 7. Copy env if needed: `cp .env.local api/.env.local`
 8. `pnpm dev` (web: 3100, API: 3001; migrations run on API start)
-9. Optional demo mode: set `NEXT_PUBLIC_DEMO=1` in the frontend env.
+9. Sign in with an email or phone OTP and write your first cheque.
 
 Useful: `pnpm test`, `pnpm build`, `pnpm lint`. Without Redis, OTP and IP rate-limit state fall back to in-memory stores for development. Cheque state, the ledger, and the outbox still require Postgres.
 

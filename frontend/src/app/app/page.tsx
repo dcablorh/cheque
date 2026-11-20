@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Check, ChevronRight, Copy, LogOut, MessageCircle, Plus, RefreshCw, Send } from 'lucide-react';
+import { Check, ChevronRight, Copy, ExternalLink, LogOut, Mail, MessageCircle, Plus, RefreshCw, Send } from 'lucide-react';
 import {
   ApiError,
   authed,
@@ -13,12 +13,13 @@ import {
   session,
   timeLeft,
   type AppConfig,
+  type ChequeDetail,
   type ChequeSummary,
 } from '@/lib/api';
 import { SignaturePad } from '@/components/SignaturePad';
 import { DepositCard } from '@/components/DepositCard';
 import { WalletButton } from '@/components/WalletButton';
-import { useWallet } from '@/lib/wallet';
+import { shortAddress, useWallet } from '@/lib/wallet';
 import { ChequePaper, ErrorNote, Logo, Spinner, StatusPill } from '@/components/ui';
 import { COUNTRIES, COUNTRY_LIST, toE164, type CountryCode } from '@/lib/countries';
 
@@ -55,7 +56,7 @@ async function runWalletTx(
   });
 }
 
-type View = 'list' | 'new' | { shared: string };
+type View = 'list' | 'new' | { shared: string; depositError?: string };
 
 export default function SenderApp() {
   const [ready, setReady] = useState(false);
@@ -237,11 +238,24 @@ function Dashboard({ onSignOut }: { onSignOut: () => void }) {
       )}
 
       {view === 'new' && config && (
-        <NewCheque config={config} onCancel={() => setView('list')} onCreated={(id) => { load(); setView({ shared: id }); }} />
+        <NewCheque
+          config={config}
+          onCancel={() => setView('list')}
+          onCreated={(id, depositError) => {
+            load();
+            setView({ shared: id, depositError });
+          }}
+        />
       )}
 
       {typeof view === 'object' && (
-        <SharePanel cheque={shared} id={view.shared} onBack={() => setView('list')} />
+        <SharePanel
+          cheque={shared}
+          id={view.shared}
+          initialError={view.depositError}
+          onRefresh={load}
+          onBack={() => setView('list')}
+        />
       )}
 
       {view === 'list' && (
@@ -295,7 +309,15 @@ const EXPIRIES = [
   { h: 168, label: '7 days' },
 ];
 
-function NewCheque({ config, onCancel, onCreated }: { config: AppConfig; onCancel: () => void; onCreated: (id: string) => void }) {
+function NewCheque({
+  config,
+  onCancel,
+  onCreated,
+}: {
+  config: AppConfig;
+  onCancel: () => void;
+  onCreated: (id: string, depositError?: string) => void;
+}) {
   const [corridor, setCorridor] = useState<CountryCode>(config.corridors[0]?.code ?? 'GH');
   const [name, setName] = useState('');
   const [payeeEmail, setPayeeEmail] = useState('');
@@ -346,15 +368,19 @@ function NewCheque({ config, onCancel, onCreated }: { config: AppConfig; onCance
         }),
       });
       saveLink(r.id, r.claimUrl);
+      let depositError: string | undefined;
       if (config.walletFunding && address) {
         try {
           await runWalletTx(r.id, 'create', sign);
         } catch (err) {
           // The cheque exists; the share screen offers "Deposit now" to retry.
-          saveLink(r.id, r.claimUrl);
+          depositError =
+            err instanceof ApiError
+              ? err.message
+              : (err as Error)?.message || 'Wallet deposit was not completed. Click "Deposit now" below to finish funding.';
         }
       }
-      onCreated(r.id);
+      onCreated(r.id, depositError);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Something went wrong.');
     } finally {
@@ -479,19 +505,48 @@ function Row({ k, v, bold }: { k: string; v: string; bold?: boolean }) {
 
 /* -------------------------------------------------------------------------- share / detail */
 
-function SharePanel({ cheque, id, onBack }: { cheque?: ChequeSummary; id: string; onBack: () => void }) {
-  const { sign } = useWallet();
+function SharePanel({
+  cheque,
+  id,
+  initialError,
+  onRefresh,
+  onBack,
+}: {
+  cheque?: ChequeSummary;
+  id: string;
+  initialError?: string;
+  onRefresh: () => void;
+  onBack: () => void;
+}) {
+  const { address, sign } = useWallet();
   const [url, setUrl] = useState<string>();
+  const [detail, setDetail] = useState<ChequeDetail | null>(null);
   const [copied, setCopied] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(initialError ?? '');
 
   useEffect(() => setUrl(readLinks()[id]), [id]);
+  useEffect(() => {
+    setError(initialError ?? '');
+  }, [initialError, id]);
+  useEffect(() => {
+    let live = true;
+    authed<ChequeDetail>(`/cheques/${id}`)
+      .then((d) => live && setDetail(d))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [id, cheque?.state]);
 
   if (!cheque) return <div className="flex justify-center py-24"><Spinner className="h-6 w-6 text-brand-600" /></div>;
 
   const live = cheque.state === 'ACTIVE';
+  const walletMismatch = !!cheque.funderAddress && !!address && address !== cheque.funderAddress;
+  const needsWalletConnect = !!cheque.funderAddress && !address;
+  const payeeEmail = detail?.payeeEmail ?? cheque.payeeEmail ?? null;
+  const payout = detail?.payout ?? null;
   const waText = url
     ? `Hi ${cheque.payeeName.split(' ')[0]}, I've sent you a ${fmtMoney(cheque.amount, cheque.currency)} cheque. Open to claim: ${url}`
     : '';
@@ -515,6 +570,7 @@ function SharePanel({ cheque, id, onBack }: { cheque?: ChequeSummary; id: string
     setError('');
     try {
       await runWalletTx(id, 'create', sign);
+      onRefresh();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : (e as Error).message || 'Deposit failed.');
     } finally {
@@ -523,18 +579,22 @@ function SharePanel({ cheque, id, onBack }: { cheque?: ChequeSummary; id: string
   }
 
   async function cancel() {
-    if (!confirm('Cancel this cheque and refund it?')) return;
+    const isUnfunded = cheque?.state === 'PENDING_FUNDING';
+    if (!confirm(isUnfunded ? 'Discard this unfunded cheque?' : 'Cancel this cheque and refund it?')) return;
     setBusy(true);
     setError('');
     try {
-      if (cheque?.funderAddress) await runWalletTx(id, 'cancel', sign);
+      if (cheque?.funderAddress && !isUnfunded) await runWalletTx(id, 'cancel', sign);
       else await authed(`/cheques/${id}/cancel`, { method: 'POST' });
+      onRefresh();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : 'Could not cancel.');
+      setError(e instanceof ApiError ? e.message : (e as Error).message || 'Could not cancel.');
     } finally {
       setBusy(false);
     }
   }
+
+  const destLabel = payout?.destChain === 'base' ? 'Base' : payout?.destChain === 'solana' ? 'Solana' : 'Stellar';
 
   return (
     <div className="mt-8 animate-rise">
@@ -551,11 +611,28 @@ function SharePanel({ cheque, id, onBack }: { cheque?: ChequeSummary; id: string
         } />
 
       {cheque.state === 'PENDING_FUNDING' && cheque.funderAddress && (
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-[10px] border border-gold-400/50 bg-gold-300/30 px-4 py-3 text-sm text-[#5c4300]">
-          <span>Waiting for your USDC deposit. Approve it in your wallet to activate this cheque.</span>
-          <button type="button" className="btn-primary !py-2" onClick={depositNow} disabled={busy}>
-            {busy && <Spinner />} Deposit now
-          </button>
+        <div className="mt-4 space-y-3 rounded-[10px] border border-gold-400/50 bg-gold-300/30 px-4 py-3 text-sm text-[#5c4300]">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span>
+              {needsWalletConnect
+                ? `Connect wallet ${shortAddress(cheque.funderAddress)} to approve the USDC deposit.`
+                : walletMismatch
+                  ? `Wrong wallet connected. Switch to ${shortAddress(cheque.funderAddress)} to deposit.`
+                  : 'Waiting for your USDC deposit. Approve it in your wallet to activate this cheque.'}
+            </span>
+            <div className="flex items-center gap-2">
+              {needsWalletConnect ? (
+                <WalletButton />
+              ) : (
+                <button type="button" className="btn-primary !py-2" onClick={depositNow} disabled={busy || walletMismatch}>
+                  {busy && <Spinner />} Deposit now
+                </button>
+              )}
+              <button type="button" className="btn-ghost !py-2" onClick={cancel} disabled={busy}>
+                Discard
+              </button>
+            </div>
+          </div>
         </div>
       )}
       {cheque.state === 'PENDING_FUNDING' && !cheque.funderAddress && (
@@ -564,10 +641,19 @@ function SharePanel({ cheque, id, onBack }: { cheque?: ChequeSummary; id: string
         </p>
       )}
 
+      {payeeEmail && ['PENDING_FUNDING', 'ACTIVE'].includes(cheque.state) && (
+        <p className="mt-4 flex items-center gap-2 rounded-[10px] border border-sage/60 bg-paper px-4 py-2.5 text-xs text-ink-soft">
+          <Mail className="h-3.5 w-3.5 shrink-0 text-brand-700" />
+          {cheque.state === 'ACTIVE'
+            ? `Claim alert queued for ${payeeEmail}. They will verify this email before claiming.`
+            : `Claim alert will be emailed to ${payeeEmail} as soon as funding confirms.`}
+        </p>
+      )}
+
       {live && (
         <div className="card mt-5 space-y-4 p-6">
           <div>
-            <h2 className="display ">Send it to {cheque.payeeName.split(' ')[0]}</h2>
+            <h2 className="display  ">Send it to {cheque.payeeName.split(' ')[0]}</h2>
             <p className="mt-1 text-sm text-ink-soft">Share the claim link. Whoever holds this link can claim the money, so send it only to them.</p>
           </div>
           {url ? (
@@ -593,17 +679,36 @@ function SharePanel({ cheque, id, onBack }: { cheque?: ChequeSummary; id: string
 
       <ErrorNote>{error}</ErrorNote>
       {live && (
-        <div className="mt-5 flex justify-end">
-          <button className="btn-danger" onClick={cancel} disabled={busy}>{busy && <Spinner />} Cancel &amp; refund</button>
+        <div className="mt-5 flex flex-wrap items-center justify-end gap-3">
+          {walletMismatch && (
+            <span className="text-xs text-cedi">Connect {shortAddress(cheque.funderAddress!)} to cancel.</span>
+          )}
+          {needsWalletConnect ? (
+            <WalletButton />
+          ) : (
+            <button className="btn-danger" onClick={cancel} disabled={busy || walletMismatch}>{busy && <Spinner />} Cancel & refund</button>
+          )}
         </div>
       )}
       {cheque.state === 'SETTLED' && (
-        <p className="mt-5 rounded-[10px] border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-brand-900">
-          Delivered. {cheque.payeeName} has been paid.
-        </p>
+        <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-[10px] border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-brand-900">
+          <span>
+            Delivered. {cheque.payeeName} has been paid{payout ? ` on ${destLabel}` : ''}.
+          </span>
+          {payout?.explorerUrl && (
+            <a
+              href={payout.explorerUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 font-semibold text-brand-700 underline underline-offset-4"
+            >
+              View receipt <ExternalLink className="h-3.5 w-3.5" />
+            </a>
+          )}
+        </div>
       )}
       <p className="mt-6 text-center text-xs text-ink-mute">
-        <button onClick={() => location.reload()} className="inline-flex items-center gap-1 underline"><RefreshCw className="h-3 w-3" />Refresh</button>
+        <button onClick={onRefresh} className="inline-flex items-center gap-1 underline"><RefreshCw className="h-3 w-3" />Refresh</button>
       </p>
     </div>
   );

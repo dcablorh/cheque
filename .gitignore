@@ -16,6 +16,7 @@ lerna-debug.log*
 Thumbs.db
 coverage/
 .turbo/
+.tmp/
 *.tsbuildinfo
 
 # Rust / Soroban build output

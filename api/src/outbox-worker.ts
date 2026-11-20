@@ -1,4 +1,4 @@
-import { OutboxProcessor, OutboxItem, getPool, type OutboxHandler } from '@cheque/core';
+import { OutboxProcessor, OutboxItem, getPool, minorToDecimalString, type OutboxHandler } from '@cheque/core';
 import { logger } from '@cheque/shared';
 
 import type { EmailClient } from '@cheque/notify';
@@ -29,19 +29,112 @@ export function createChequeAlertHandler(emailClient?: EmailSender, db?: Pool): 
     }
 
     const pool = db ?? getPool();
-    const stateRes = await pool.query(`SELECT state FROM cheques WHERE id = $1`, [item.aggregateId]);
-    const state = stateRes.rows[0]?.state as string | undefined;
+    const res = await pool.query(
+      `SELECT c.state, c.public_code AS "publicCode", c.face_amount_minor::float8 AS "faceAmountMinor",
+              c.currency, c.note, c.expires_at AS "expiresAt", u.name AS "senderName"
+         FROM cheques c
+         LEFT JOIN users u ON u.id = c.sender_id
+        WHERE c.id = $1`,
+      [item.aggregateId]
+    );
+    const row = res.rows[0] as
+      | {
+          state?: string;
+          publicCode?: string;
+          faceAmountMinor?: number;
+          currency?: string;
+          note?: string | null;
+          expiresAt?: Date | string;
+          senderName?: string | null;
+        }
+      | undefined;
+    const state = row?.state;
     if (state !== 'ACTIVE') {
       logger.info(`[Outbox] Skipping cheque alert for ${item.aggregateId}; state is ${state ?? 'missing'}`);
       return;
     }
 
+    const amountStr =
+      row?.faceAmountMinor != null && row?.currency
+        ? `${minorToDecimalString(row.faceAmountMinor)} ${row.currency}`
+        : 'a digital cheque';
+    const fromStr = row?.senderName ? ` from ${row.senderName}` : '';
+    const noteLine = row?.note ? `\nNote: "${row.note}"` : '';
+    const codeLine = row?.publicCode ? `\nCheque #: ${row.publicCode}` : '';
+
     await emailClient.sendEmail({
       to,
-      subject: 'You received a sencheq cheque',
-      text: `You have received a digital cheque. Open the link to claim it: ${claimUrl}`,
+      subject: `You received a sencheq cheque (${amountStr})`,
+      text: `You have received ${amountStr}${fromStr}.${codeLine}${noteLine}\n\nOpen the link to claim it: ${claimUrl}`,
     });
     logger.info(`[Outbox] Sent cheque alert email to ${to}`);
+  };
+}
+
+/** Sends lifecycle status alerts (SETTLED / REFUNDED) to sender and/or recipient. */
+export function createChequeStatusEmailHandler(emailClient?: EmailSender, db?: Pool): OutboxHandler {
+  return async (item: OutboxItem) => {
+    if (!emailClient) return;
+    const payload = (item.payload ?? {}) as {
+      event?: 'SETTLED' | 'REFUNDED';
+      chain?: string;
+      explorerUrl?: string | null;
+    };
+    if (!payload.event) return;
+
+    const pool = db ?? getPool();
+    const res = await pool.query(
+      `SELECT c.public_code AS "publicCode", c.payee_name AS "payeeName",
+              c.payee_contact_type AS "payeeContactType", c.payee_contact AS "payeeContact",
+              c.face_amount_minor::float8 AS "faceAmountMinor", c.currency,
+              u.email AS "senderEmail", u.name AS "senderName"
+         FROM cheques c
+         LEFT JOIN users u ON u.id = c.sender_id
+        WHERE c.id = $1`,
+      [item.aggregateId]
+    );
+    const row = res.rows[0] as
+      | {
+          publicCode: string;
+          payeeName: string;
+          payeeContactType: string | null;
+          payeeContact: string | null;
+          faceAmountMinor: number;
+          currency: string;
+          senderEmail: string | null;
+          senderName: string | null;
+        }
+      | undefined;
+    if (!row) return;
+
+    const amountStr = `${minorToDecimalString(row.faceAmountMinor)} ${row.currency}`;
+    const chainStr = payload.chain ? ` on ${payload.chain.charAt(0).toUpperCase() + payload.chain.slice(1)}` : '';
+    const receiptLine = payload.explorerUrl ? `\nReceipt: ${payload.explorerUrl}` : '';
+
+    if (payload.event === 'SETTLED') {
+      if (row.senderEmail) {
+        await emailClient.sendEmail({
+          to: row.senderEmail,
+          subject: `Cheque ${row.publicCode} paid to ${row.payeeName}`,
+          text: `Your cheque ${row.publicCode} for ${amountStr} to ${row.payeeName} has been claimed and paid${chainStr}.${receiptLine}`,
+        });
+      }
+      if (row.payeeContactType === 'EMAIL' && row.payeeContact) {
+        await emailClient.sendEmail({
+          to: row.payeeContact,
+          subject: `Your sencheq payout (${amountStr}) has arrived`,
+          text: `Your cheque ${row.publicCode} for ${amountStr} has been delivered${chainStr}.${receiptLine}`,
+        });
+      }
+    } else if (payload.event === 'REFUNDED') {
+      if (row.senderEmail) {
+        await emailClient.sendEmail({
+          to: row.senderEmail,
+          subject: `Cheque ${row.publicCode} expired and refunded`,
+          text: `Your cheque ${row.publicCode} for ${amountStr} to ${row.payeeName} expired unclaimed and has been refunded to the funding wallet.`,
+        });
+      }
+    }
   };
 }
 
@@ -75,6 +168,7 @@ export function createOutboxWorker(deps: OutboxWorkerDependencies = {}): OutboxP
   });
 
   processor.registerHandler('email:cheque:alert', createChequeAlertHandler(deps.emailClient));
+  processor.registerHandler('email:cheque:status', createChequeStatusEmailHandler(deps.emailClient));
 
   return processor;
 }

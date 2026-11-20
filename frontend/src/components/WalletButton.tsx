@@ -6,7 +6,7 @@ import { Spinner } from '@/components/ui';
 
 /** Connect / connected pill. Shows the short address with a disconnect control once linked. */
 export function WalletButton({ className = '' }: { className?: string }) {
-  const { address, busy, connect, disconnect } = useWallet();
+  const { address, busy, error, connect, disconnect } = useWallet();
 
   if (address) {
     return (
@@ -27,10 +27,13 @@ export function WalletButton({ className = '' }: { className?: string }) {
   }
 
   return (
-    <button type="button" onClick={connect} disabled={busy} className={`btn-ghost !px-4 !py-2.5 ${className}`}>
-      {busy ? <Spinner /> : <Wallet className="h-4 w-4" />}
-      <span className="sm:hidden">Wallet</span>
-      <span className="hidden sm:inline">Connect wallet</span>
-    </button>
+    <div className="inline-flex flex-col items-end gap-1">
+      <button type="button" onClick={connect} disabled={busy} className={`btn-ghost !px-4 !py-2.5 ${className}`}>
+        {busy ? <Spinner /> : <Wallet className="h-4 w-4" />}
+        <span className="sm:hidden">Wallet</span>
+        <span className="hidden sm:inline">Connect wallet</span>
+      </button>
+      {error && <span className="text-[11px] font-medium text-cedi">{error}</span>}
+    </div>
   );
 }

@@ -15,6 +15,7 @@ import {
 } from '@/lib/api';
 import { COUNTRIES, type CountryCode } from '@/lib/countries';
 import { ChequePaper, ErrorNote, CorridorMap, Logo, Spinner } from '@/components/ui';
+import { useWallet, shortAddress } from '@/lib/wallet';
 
 interface PublicCheque {
   publicCode: string;
@@ -42,6 +43,8 @@ interface ClaimStatus extends PublicCheque {
   payoutStatus?: string | null;
   payoutError?: string | null;
   network: string;
+  cctpEnabled?: boolean;
+  requiresEmailOtp?: boolean;
 }
 
 interface PayoutQuote {
@@ -92,6 +95,7 @@ export default function ClaimPage() {
   const [sessionToken, setSessionToken] = useState('');
   const [otpSent, setOtpSent] = useState(false);
   const idem = useRef('');
+  const { address: walletAddress, connect, busy: walletBusy } = useWallet();
 
   const refresh = useCallback(async () => {
     try {
@@ -120,9 +124,9 @@ export default function ClaimPage() {
     return () => clearInterval(t);
   }, [cheque, refresh]);
 
-  // Estimated CCTP forwarding fee (from Stellar) once a destination rail is chosen.
+  // Fetch CCTP payout quote only when we're on the destination step and CCTP is enabled.
   useEffect(() => {
-    if (!token) return;
+    if (!token || step !== 'destination' || chain === 'stellar' || !cheque?.cctpEnabled) return;
     let cancelled = false;
     const timer = setTimeout(async () => {
       try {
@@ -144,7 +148,7 @@ export default function ClaimPage() {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [token, chain, address, addressValid]);
+  }, [token, chain, address, addressValid, step, cheque?.cctpEnabled]);
 
   async function run<T>(fn: () => Promise<T>): Promise<T | undefined> {
     setBusy(true);
@@ -177,6 +181,13 @@ export default function ClaimPage() {
     setError('');
     idem.current = crypto.randomUUID();
   };
+
+  // Autofill Stellar address from connected wallet
+  useEffect(() => {
+    if (chain === 'stellar' && walletAddress && !address) {
+      setAddress(walletAddress);
+    }
+  }, [chain, walletAddress, address]);
 
   if (missing) return <Shell><Dead icon={XCircle} title="Link not valid" body="This cheque link doesn't exist. Check that you copied the whole link." /></Shell>;
   if (!cheque) {
@@ -274,6 +285,8 @@ export default function ClaimPage() {
     return <Shell><Dead icon={cheque.state === 'PENDING_FUNDING' ? Clock : XCircle} {...DEAD[cheque.state]} /></Shell>;
   }
 
+  const cctpAvailable = cheque.cctpEnabled ?? false;
+  const requiresOtp = cheque.requiresEmailOtp ?? false;
   const rail = RAILS.find((r) => r.id === chain)!;
   const netTooLow = quote != null && chain !== 'stellar' && quote.sufficient === false;
 
@@ -355,16 +368,19 @@ export default function ClaimPage() {
             <div className="grid gap-3 sm:grid-cols-3">
               {RAILS.map((r) => {
                 const selected = chain === r.id;
+                const disabled = (r.id === 'base' || r.id === 'solana') && !cctpAvailable;
                 return (
                   <button
                     key={r.id}
                     type="button"
-                    onClick={() => selectRail(r.id)}
-                    className={`rounded-[10px] p-4 text-left ${selected ? 'border-2 border-night bg-brand-50' : 'border border-ink/10 bg-ink/[.03]'}`}
+                    onClick={() => !disabled && selectRail(r.id)}
+                    disabled={disabled}
+                    className={`rounded-[10px] p-4 text-left ${disabled ? 'opacity-50 cursor-not-allowed' : selected ? 'border-2 border-night bg-brand-50' : 'border border-ink/10 bg-ink/[.03]'}`}
                     aria-pressed={selected}
+                    aria-disabled={disabled}
                   >
                     <Wallet className={`mb-2 h-5 w-5 ${selected ? 'text-brand-700' : 'text-ink-mute'}`} />
-                    <p className="font-semibold">{r.title}</p>
+                    <p className="font-semibold">{r.title}{disabled && ' (CCTP not configured)'}</p>
                     <p className="text-xs text-ink-soft">{r.hint}</p>
                   </button>
                 );
@@ -379,10 +395,20 @@ export default function ClaimPage() {
 
             <div>
               <label className="label" htmlFor="addr">{rail.title} address</label>
-              <input id="addr" className="field font-mono text-sm" placeholder={rail.placeholder} spellCheck={false}
-                autoCapitalize={chain === 'stellar' ? 'characters' : 'none'}
-                autoComplete="off" aria-invalid={addressTouched && !addressValid} aria-describedby="addr-help"
-                value={address} onChange={(e) => setAddress(e.target.value.trim())} />
+              <div className="flex items-center gap-2">
+                <input id="addr" className="field font-mono text-sm flex-1" placeholder={rail.placeholder} spellCheck={false}
+                  autoCapitalize={chain === 'stellar' ? 'characters' : 'none'}
+                  autoComplete="off" aria-invalid={addressTouched && !addressValid} aria-describedby="addr-help"
+                  value={address} onChange={(e) => setAddress(e.target.value.trim())} />
+                {chain === 'stellar' && !walletAddress && !walletBusy && (
+                  <button type="button" className="btn-ghost !px-3 !py-2" onClick={connect}>
+                    <Wallet className="h-4 w-4" /> Connect wallet
+                  </button>
+                )}
+                {chain === 'stellar' && walletAddress && (
+                  <span className="text-xs text-brand-700" title={walletAddress}>{shortAddress(walletAddress)}</span>
+                )}
+              </div>
               <p id="addr-help" className={`mt-1.5 text-xs ${addressTouched && !addressValid ? 'font-semibold text-cedi' : 'text-ink-mute'}`}>
                 {addressTouched && !addressValid
                   ? chain === 'stellar'

@@ -3,15 +3,24 @@ import dotenv from 'dotenv';
 import path from 'node:path';
 import fs from 'node:fs';
 
-// Try loading .env.local first, then .env
-const envLocalPath = path.resolve(process.cwd(), '.env.local');
-const envPath = path.resolve(process.cwd(), '.env');
-
-if (fs.existsSync(envLocalPath)) {
-  dotenv.config({ path: envLocalPath });
-} else if (fs.existsSync(envPath)) {
-  dotenv.config({ path: envPath });
+// Load .env.local then .env from cwd and walk up to the workspace root.
+// dotenv does not overwrite already-set process.env vars, so local overrides win.
+function loadDotenvFiles() {
+  let dir = process.cwd();
+  for (let i = 0; i < 4; i++) {
+    for (const file of ['.env.local', '.env']) {
+      const candidate = path.resolve(dir, file);
+      if (fs.existsSync(candidate)) {
+        dotenv.config({ path: candidate });
+      }
+    }
+    if (fs.existsSync(path.resolve(dir, 'pnpm-workspace.yaml'))) break;
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
 }
+loadDotenvFiles();
 
 export const EnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -87,7 +96,7 @@ export const EnvSchema = z.object({
   // Security & App
   JWT_SECRET: z.string().min(32).default('development_jwt_secret_must_be_changed_in_prod'),
   OTP_SALT: z.string().min(32).default('development_otp_salt_must_be_changed_in_prod'),
-  NEXT_PUBLIC_APP_URL: z.string().url().default('http://localhost:3000'),
+  NEXT_PUBLIC_APP_URL: z.string().url().default('http://localhost:3100'),
   NEXT_PUBLIC_API_URL: z.string().url().default('http://localhost:3001'),
 });
 
@@ -121,8 +130,7 @@ export function loadEnv(options: { requireSecrets?: boolean } = {}): Env {
     if (!env.CLAIM_AUTHORITY_SECRET) missing.push('CLAIM_AUTHORITY_SECRET');
     if (!env.SETTLEMENT_ACCOUNT_SECRET) missing.push('SETTLEMENT_ACCOUNT_SECRET');
     if (!env.FEE_SOURCE_SECRET) missing.push('FEE_SOURCE_SECRET');
-    if (!env.SEEV_CASH_API_KEY) missing.push('SEEV_CASH_API_KEY');
-    if (!env.WHATSAPP_API_TOKEN) missing.push('WHATSAPP_API_TOKEN');
+    if (!env.EMAIL_API_KEY) missing.push('EMAIL_API_KEY');
 
     // Reject default/weak JWT and OTP secrets in production or when secrets are required.
     const defaultJwt = 'development_jwt_secret_must_be_changed_in_prod';

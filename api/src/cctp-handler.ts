@@ -3,6 +3,7 @@ import type { OutboxItem } from '@cheque/core';
 import {
   MIN_CCTP_NET_MICRO,
   stroopsToMicroUsdc,
+  explorerTxUrl,
   transition,
   withTransaction,
   createSettlementConfirmedTransaction,
@@ -14,6 +15,7 @@ import { logger } from '@cheque/shared';
 export interface CctpHandlerDeps {
   pool: Pool;
   adapter: CctpAdapter;
+  network?: 'TESTNET' | 'PUBLIC';
 }
 
 export class CctpTerminalError extends Error {
@@ -135,7 +137,7 @@ export function createCctpOperationHandler(deps: CctpHandlerDeps) {
       const burnTx = payload.burnTx ?? payout.cctpBurnTx;
       if (!burnTx) throw new Error(`No Stellar CCTP burn tx to wait on for ${chequeId}`);
       if (payout.cctpForwardTx) {
-        await finishSettled(pool, chequeId, payout.id, burnTx, payout.cctpForwardTx, null);
+        await finishSettled(pool, chequeId, payout.id, chain, burnTx, payout.cctpForwardTx, null, deps.network);
         return;
       }
       try {
@@ -143,7 +145,7 @@ export function createCctpOperationHandler(deps: CctpHandlerDeps) {
           timeoutMs: 15_000,
           pollMs: 3_000,
         });
-        await finishSettled(pool, chequeId, payout.id, burnTx, forwardTxHash, message);
+        await finishSettled(pool, chequeId, payout.id, chain, burnTx, forwardTxHash, message, deps.network);
         logger.info(`[cctp] forward confirmed for ${chequeId}: ${forwardTxHash}`);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -170,9 +172,11 @@ async function finishSettled(
   pool: Pool,
   chequeId: string,
   payoutId: string,
+  chain: DestinationChain,
   _burnTx: string,
   forwardTx: string,
   irisMessage: Record<string, unknown> | null,
+  network: 'TESTNET' | 'PUBLIC' = 'TESTNET',
 ): Promise<void> {
   await pool.query(
     `UPDATE payouts
@@ -207,6 +211,17 @@ async function finishSettled(
             amountMinor: cheque.faceAmountMinor,
             currency: cheque.currency as 'GHS' | 'NGN' | 'USD' | 'USDC',
           }),
+          outboxItems: [
+            {
+              topic: 'email:cheque:status',
+              aggregateType: 'cheque',
+              payload: {
+                event: 'SETTLED',
+                chain,
+                explorerUrl: explorerTxUrl(chain, forwardTx, network),
+              },
+            },
+          ],
         },
         client,
       );

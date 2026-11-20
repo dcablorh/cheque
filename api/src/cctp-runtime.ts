@@ -34,5 +34,5 @@ export function buildCctpHandlerFromEnv(
 ): ((item: OutboxItem) => Promise<void>) | undefined {
   const cctp = adapter ?? buildCctpAdapterFromEnv(env);
   if (!cctp) return undefined;
-  return createCctpOperationHandler({ pool, adapter: cctp });
+  return createCctpOperationHandler({ pool, adapter: cctp, network: env.STELLAR_NETWORK });
 }

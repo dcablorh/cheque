@@ -1,5 +1,3 @@
-import { DEMO, DEMO_SESSION, demoRequest } from './demo';
-
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
 export class ApiError extends Error {
@@ -21,7 +19,6 @@ interface Session {
 
 export const session = {
   get(): Session | null {
-    if (DEMO) return JSON.parse(localStorage.getItem(KEY) ?? JSON.stringify(DEMO_SESSION));
     try {
       return JSON.parse(localStorage.getItem(KEY) ?? 'null');
     } catch {
@@ -37,14 +34,6 @@ export const session = {
 };
 
 async function request<T>(path: string, init: RequestInit = {}, token?: string): Promise<T> {
-  if (DEMO) {
-    try {
-      return demoRequest(path, init) as T;
-    } catch (e) {
-      const err = e as { message: string; status?: number };
-      throw new ApiError(err.message, err.status ?? 500);
-    }
-  }
   let res: Response;
   try {
     res = await fetch(`${API_URL}${path}`, {
@@ -101,6 +90,7 @@ export interface ChequeSummary {
   publicCode: string;
   state: string;
   payeeName: string;
+  payeeEmail?: string | null;
   corridor?: string;
   amount: string;
   currency: string;
@@ -109,6 +99,19 @@ export interface ChequeSummary {
   funderAddress?: string | null;
   expiresAt: string;
   createdAt: string;
+}
+
+export interface ChequeDetail extends ChequeSummary {
+  payout?: {
+    destChain: DestinationChain;
+    status: string | null;
+    feeUsdc: string | null;
+    netUsdc: string | null;
+    burnTxHash: string | null;
+    forwardTxHash: string | null;
+    explorerUrl: string | null;
+    lastError: string | null;
+  } | null;
 }
 
 export interface CorridorConfig {
@@ -127,6 +130,7 @@ export interface AppConfig {
   network: string;
   chainEnabled: boolean;
   walletFunding?: boolean;
+  cctpEnabled?: boolean;
   usdc?: { code: string; issuer: string };
   horizonUrl?: string;
   networkPassphrase?: string;

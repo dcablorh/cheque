@@ -175,7 +175,7 @@ ${params.text}
   await authService.init();
 
   // Initialize and start BullMQ outbox worker
-  const chain = await buildChainHandlerFromEnv(env, pool, createChainAppliedHook(pool));
+  const chain = await buildChainHandlerFromEnv(env, pool, createChainAppliedHook(pool, env.STELLAR_NETWORK));
   const cctpAdapter = buildCctpAdapterFromEnv(env);
   const outboxWorker = createOutboxWorker({
     redisUrl: env.REDIS_URL,
