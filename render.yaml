@@ -100,16 +100,19 @@ services:
       - key: ENABLED_CORRIDORS
         sync: false
 
+  # Redis-compatible Key Value (Valkey 8) — a SERVICE, not a database.
+  # Internal-only (ipAllowList: []): reachable from cheque-api over Render's
+  # private network; REDIS_URL is wired via fromService above.
+  - type: keyvalue
+    name: cheque-redis
+    plan: free
+    region: oregon
+    ipAllowList: []
+    maxmemoryPolicy: noeviction # required by BullMQ — never evict queue jobs
+
 databases:
   - name: cheque-db
     databaseName: cheque_db
     user: cheque_user
     plan: free
     region: oregon
-
-  - type: keyvalue
-    name: cheque-redis
-    plan: free
-    region: oregon
-    ipAllowList: [] # internal only — only the API service can reach it
-    maxmemoryPolicy: noeviction
