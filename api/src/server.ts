@@ -141,16 +141,20 @@ export async function buildApp() {
   });
   await emailOtpService.init();
 
-  // Local development without Resend credentials: print codes to the API console instead of
-  // failing. Never active outside NODE_ENV=development.
-  const devConsoleEmail = env.NODE_ENV === 'development' && !env.EMAIL_API_KEY;
+  // Local development/tests without Resend credentials: capture codes instead of failing.
+  // Never active in production, and only when no email API key is configured.
+  const devConsoleEmail = (env.NODE_ENV === 'development' || env.NODE_ENV === 'test') && !env.EMAIL_API_KEY;
+  const outboundEmail: { to: string; subject: string; text: string }[] = [];
   const emailClient = devConsoleEmail
     ? ({
         async sendEmail(params: { to: string; subject: string; text: string }) {
-          console.log(`
+          outboundEmail.push(params);
+          if (env.NODE_ENV === 'development') {
+            console.log(`
 [DEV EMAIL -> ${params.to}] ${params.subject}
 ${params.text}
 `);
+          }
           return {};
         },
       } as unknown as EmailClient)
@@ -448,6 +452,9 @@ ${params.text}
     whatsAppClient,
     smsClient,
     otpService,
+    emailOtpService,
+    emailClient,
+    outboundEmail,
     authService,
   };
 }

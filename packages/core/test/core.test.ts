@@ -16,6 +16,8 @@ import {
   maskAccountRef,
   generateClaimToken,
   hashClaimToken,
+  generateSessionToken,
+  hashSessionToken,
   generateOtp,
   hashOtp,
   verifyOtp,
@@ -124,6 +126,14 @@ describe('128-bit Claim Token and OTP Security', () => {
     expect(rawToken).toBeTruthy();
     expect(claimTokenHash).toBe(hashClaimToken(rawToken));
     expect(publicCode).toMatch(/^CHQ-[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/);
+  });
+
+  it('hashes claim session tokens the same way as claim URL tokens', () => {
+    const raw = generateSessionToken();
+    const hashed = hashSessionToken(raw);
+    expect(hashed).toBe(hashClaimToken(raw));
+    expect(hashed).toMatch(/^[0-9a-f]{64}$/);
+    expect(hashed).not.toBe(raw);
   });
 
   it('verifies OTP in constant time with correct salt', () => {
