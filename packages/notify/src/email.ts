@@ -1,5 +1,3 @@
-import { logger } from '@cheque/shared';
-
 export interface EmailClientConfig {
   apiKey?: string;
   from?: string;
@@ -16,8 +14,7 @@ export class EmailClient {
 
   async sendEmail(params: { to: string; subject: string; text: string; html?: string }): Promise<{ id?: string }> {
     if (!this.apiKey) {
-      logger.warn('EMAIL_API_KEY not configured; email not sent.');
-      return {};
+      throw new Error('EMAIL_API_KEY is not configured; email not sent.');
     }
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',

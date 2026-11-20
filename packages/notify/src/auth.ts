@@ -154,7 +154,8 @@ export class SenderAuthService {
   async verifyEmailLoginOtp(params: { email: string; otp: string; name?: string }): Promise<AuthTokens> {
     if (!this.emailOtpService) throw new Error('Email OTP service is not configured.');
     const email = params.email.trim().toLowerCase();
-    await this.emailOtpService.verifyOtp(email, params.otp);
+    const verified = await this.emailOtpService.verifyOtp(email, params.otp);
+    if (!verified) throw new Error('Invalid verification code.');
 
     const client = await this.pool.connect();
     let user: User;

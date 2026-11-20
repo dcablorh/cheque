@@ -80,6 +80,14 @@ export function generateSessionToken(): string {
 }
 
 /**
+ * SHA-256 hex hash of a claim session token, stored in Postgres instead of the raw token.
+ * Same construction as hashClaimToken.
+ */
+export function hashSessionToken(rawToken: string): string {
+  return hashClaimToken(rawToken);
+}
+
+/**
  * Computes a deterministic hash of request payloads for idempotency key verification.
  */
 export function hashRequestPayload(payload: unknown): string {

@@ -17,6 +17,8 @@ import {
   generateClaimToken,
   hashClaimToken,
   generateSessionToken,
+  hashSessionToken,
+  hashOtp,
   transition,
   withTransaction,
   mapChequeRow,
@@ -185,16 +187,15 @@ async function activateFunded(pool: Pool, cheque: Cheque, source: string): Promi
     auditPayload: { source },
   });
   if (!moved) return;
-  // Queue recipient email alert when a recipient email is on file (PRD v4).
+  // Release the alert queued at create time (payload already has the claim URL).
   if (cheque.payeeContact && cheque.payeeContactType === 'EMAIL') {
     await pool.query(
-      `INSERT INTO outbox (id, topic, aggregate_type, aggregate_id, payload, status, next_run_at)
-       VALUES ($1, 'email:cheque:alert', 'cheque', $2, $3, 'PENDING', NOW())`,
-      [
-        crypto.randomUUID(),
-        cheque.id,
-        JSON.stringify({ chequeId: cheque.id, to: cheque.payeeContact }),
-      ]
+      `UPDATE outbox
+          SET next_run_at = NOW(), updated_at = NOW()
+        WHERE topic = 'email:cheque:alert'
+          AND aggregate_id = $1
+          AND status = 'PENDING'`,
+      [cheque.id]
     );
   }
 }
@@ -472,6 +473,19 @@ export function registerChequeRoutes(deps: ChequeServiceDeps): void {
          VALUES ($1, 'CHEQUE_CREATED', 'PENDING_FUNDING', 'SENDER', $2::jsonb)`,
         [chequeId, JSON.stringify({ corridor: corridor.code, currency })]
       );
+      if (input.payeeEmail) {
+        const claimUrl = `${env.NEXT_PUBLIC_APP_URL}/c/${rawToken}`;
+        await client.query(
+          `INSERT INTO outbox (id, topic, aggregate_type, aggregate_id, payload, status, next_run_at)
+           VALUES ($1, 'email:cheque:alert', 'cheque', $2, $3, 'PENDING', $4)`,
+          [
+            crypto.randomUUID(),
+            chequeId,
+            JSON.stringify({ chequeId, to: input.payeeEmail, claimUrl }),
+            expiresAt, // held until activateFunded sets next_run_at = NOW(); skipped if never funded
+          ]
+        );
+      }
       if (input.funderAddress) return; // the sender's wallet deposits; see /cheques/:id/tx/*
       const payload: ChainOperationPayload = {
         operation: 'create_cheque',
@@ -697,7 +711,8 @@ export function registerChequeRoutes(deps: ChequeServiceDeps): void {
     if (!found) return reply.notFound('This cheque link is not valid.');
     const email = found.cheque.payeeContact;
     if (!email || found.cheque.payeeContactType !== 'EMAIL') {
-      return reply.badRequest('This cheque has no recipient email to verify.');
+      // Cheques issued without a recipient email stay claimable without OTP.
+      return { success: true, skipped: true };
     }
     try {
       const { otp } = await deps.emailOtpService.createOtpSession({ phoneInput: email });
@@ -740,7 +755,7 @@ export function registerChequeRoutes(deps: ChequeServiceDeps): void {
     await pool.query(
       `INSERT INTO claim_sessions (cheque_id, otp_hash, attempts, max_attempts, verified_at, expires_at, session_token)
        VALUES ($1, $2, 0, 5, NOW(), NOW() + INTERVAL '30 minutes', $3)`,
-      [found.cheque.id, 'verified', sessionToken]
+      [found.cheque.id, hashOtp(otp.trim(), env.OTP_SALT), hashSessionToken(sessionToken)]
     );
     return { sessionToken, expiresIn: 1800 };
   });
@@ -758,8 +773,12 @@ export function registerChequeRoutes(deps: ChequeServiceDeps): void {
       if (!found) return reply.notFound('This cheque link is not valid.');
       const { cheque } = found;
 
-      // When email verification is enabled, a valid claim session is required.
-      if (deps.emailOtpService) {
+      // When this cheque was addressed to an email, a verified claim session is required.
+      const emailVerificationRequired =
+        !!deps.emailOtpService &&
+        cheque.payeeContactType === 'EMAIL' &&
+        !!cheque.payeeContact;
+      if (emailVerificationRequired) {
         if (!sessionToken) {
           return reply.unauthorized('Email verification required before redeeming.');
         }
@@ -767,7 +786,7 @@ export function registerChequeRoutes(deps: ChequeServiceDeps): void {
           `SELECT id FROM claim_sessions
             WHERE cheque_id = $1 AND session_token = $2
               AND verified_at IS NOT NULL AND expires_at > NOW()`,
-          [cheque.id, sessionToken]
+          [cheque.id, hashSessionToken(sessionToken)]
         );
         if (!session.rowCount) {
           return reply.unauthorized('Invalid or expired verification session.');

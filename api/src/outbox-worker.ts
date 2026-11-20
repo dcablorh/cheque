@@ -1,12 +1,47 @@
-import { OutboxProcessor, OutboxItem, getPool } from '@cheque/core';
+import { OutboxProcessor, OutboxItem, getPool, type OutboxHandler } from '@cheque/core';
 import { logger } from '@cheque/shared';
 
 import type { EmailClient } from '@cheque/notify';
+import type { Pool } from 'pg';
+
+type EmailSender = Pick<EmailClient, 'sendEmail'>;
 
 export interface OutboxWorkerDependencies {
   redisUrl?: string;
   onChainOperation?: (item: OutboxItem) => Promise<void>;
   emailClient?: EmailClient;
+}
+
+
+/** Sends a funded-cheque alert only when the cheque is ACTIVE and the payload has a real claim URL. */
+export function createChequeAlertHandler(emailClient?: EmailSender, db?: Pool): OutboxHandler {
+  return async (item: OutboxItem) => {
+    if (!emailClient) {
+      throw new Error('No email client configured; cannot send cheque alert');
+    }
+    const payload = (item.payload ?? {}) as { to?: unknown; claimUrl?: unknown };
+    const to = typeof payload.to === 'string' ? payload.to : '';
+    const claimUrl = typeof payload.claimUrl === 'string' ? payload.claimUrl : '';
+    if (!to) throw new Error('Missing recipient email in alert payload');
+    if (!claimUrl || claimUrl.includes('<token>')) {
+      throw new Error('Missing claim URL in alert payload');
+    }
+
+    const pool = db ?? getPool();
+    const stateRes = await pool.query(`SELECT state FROM cheques WHERE id = $1`, [item.aggregateId]);
+    const state = stateRes.rows[0]?.state as string | undefined;
+    if (state !== 'ACTIVE') {
+      logger.info(`[Outbox] Skipping cheque alert for ${item.aggregateId}; state is ${state ?? 'missing'}`);
+      return;
+    }
+
+    await emailClient.sendEmail({
+      to,
+      subject: 'You received a sencheq cheque',
+      text: `You have received a digital cheque. Open the link to claim it: ${claimUrl}`,
+    });
+    logger.info(`[Outbox] Sent cheque alert email to ${to}`);
+  };
 }
 
 export function createOutboxWorker(deps: OutboxWorkerDependencies = {}): OutboxProcessor {
@@ -30,20 +65,7 @@ export function createOutboxWorker(deps: OutboxWorkerDependencies = {}): OutboxP
     await deps.onChainOperation(item);
   });
 
-  // Handler for recipient email alerts (PRD v4).
-  processor.registerHandler('email:cheque:alert', async (item: OutboxItem) => {
-    if (!deps.emailClient) {
-      throw new Error('No email client configured; cannot send cheque alert');
-    }
-    const to = String((item.payload as any)?.to ?? '');
-    if (!to) throw new Error('Missing recipient email in alert payload');
-    await deps.emailClient.sendEmail({
-      to,
-      subject: 'You received a sencheq cheque',
-      text: `You have received a digital cheque. Open the link to claim it: ${process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3100'}/c/<token>`,
-    });
-    logger.info(`[Outbox] Sent cheque alert email to ${to}`);
-  });
+  processor.registerHandler('email:cheque:alert', createChequeAlertHandler(deps.emailClient));
 
   return processor;
 }

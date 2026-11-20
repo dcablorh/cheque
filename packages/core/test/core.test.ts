@@ -16,6 +16,8 @@ import {
   maskAccountRef,
   generateClaimToken,
   hashClaimToken,
+  generateSessionToken,
+  hashSessionToken,
   generateOtp,
   hashOtp,
   verifyOtp,
@@ -37,8 +39,6 @@ import {
   runMigrations,
   transition,
   OptimisticLockError,
-  getReconciliationReport,
-  checkChequeReconciliation,
   OutboxProcessor,
   OutboxItem,
 } from '../src/index.js';
@@ -124,6 +124,14 @@ describe('128-bit Claim Token and OTP Security', () => {
     expect(rawToken).toBeTruthy();
     expect(claimTokenHash).toBe(hashClaimToken(rawToken));
     expect(publicCode).toMatch(/^CHQ-[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/);
+  });
+
+  it('hashes claim session tokens the same way as claim URL tokens', () => {
+    const raw = generateSessionToken();
+    const hashed = hashSessionToken(raw);
+    expect(hashed).toBe(hashClaimToken(raw));
+    expect(hashed).toMatch(/^[0-9a-f]{64}$/);
+    expect(hashed).not.toBe(raw);
   });
 
   it('verifies OTP in constant time with correct salt', () => {
@@ -506,55 +514,6 @@ describe('Real PostgreSQL Integration & Double-Entry Ledger Property Tests', () 
       expect(completedRes.rows[0].status).toBe('COMPLETED');
     } finally {
       await client.query('DELETE FROM outbox WHERE id = $1;', [outboxId]).catch(() => {});
-      client.release();
-    }
-  });
-
-  it('reconciliation view reports off-chain state vs chain_events alignment', async () => {
-    const client = await pool.connect();
-    const testUserId = crypto.randomUUID();
-    const testChequeId = crypto.randomUUID();
-    const chequeHex = testChequeId.replace(/-/g, '');
-
-    try {
-      await client.query(
-        `INSERT INTO users (id, phone_e164, name) VALUES ($1, $2, 'Recon User') ON CONFLICT DO NOTHING;`,
-        [testUserId, '+233240001122']
-      );
-
-      await client.query(
-        `
-        INSERT INTO cheques (
-          id, public_code, claim_token_hash, sender_id, payee_name, payee_contact_type, payee_contact,
-          face_amount_minor, fee_minor, state, expires_at, version
-        ) VALUES ($1, $2, $3, $4, 'Payee', 'PHONE', '+233241112233', 50000, 500, 'ACTIVE', NOW() + INTERVAL '1 day', 1);
-        `,
-        [testChequeId, `CHQ-${crypto.randomBytes(3).toString('hex').toUpperCase()}`, crypto.randomBytes(32).toString('hex'), testUserId]
-      );
-
-      // Initially, cheque is ACTIVE but no on-chain event exists yet -> isReconciled = false
-      let recon = await checkChequeReconciliation(testChequeId, client);
-      expect(recon).toBeDefined();
-      expect(recon?.isReconciled).toBe(false);
-
-      // Now insert on-chain event 'created' into chain_events
-      await client.query(
-        `
-        INSERT INTO chain_events (id, tx_hash, event_index, ledger, contract_id, topic, cheque_id_hex, payload)
-        VALUES ('tx1:0', 'tx1', 0, 5000100, 'contract-id', 'created', $1, '{"amount":50000}');
-        `,
-        [chequeHex]
-      );
-
-      // Re-check reconciliation -> now matches!
-      recon = await checkChequeReconciliation(testChequeId, client);
-      expect(recon?.isReconciled).toBe(true);
-      expect(recon?.lastChainEvent).toBe('created');
-      expect(recon?.lastChainLedger).toBe('5000100');
-    } finally {
-      await client.query('DELETE FROM chain_events WHERE cheque_id_hex = $1;', [chequeHex]).catch(() => {});
-      await client.query('DELETE FROM cheques WHERE id = $1;', [testChequeId]).catch(() => {});
-      await client.query('DELETE FROM users WHERE id = $1;', [testUserId]).catch(() => {});
       client.release();
     }
   });

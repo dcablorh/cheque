@@ -67,8 +67,12 @@ export async function buildApp() {
     const ip = request.ip || 'unknown';
     const path = request.url.split('?')[0];
     let result: { allowed: boolean; retryAfter: number } | null = null;
-    if (path === '/auth/otp/request') result = await rateLimiter.check(`rl:auth:req:${ip}`, 10, 60);
-    else if (path === '/auth/otp/verify') result = await rateLimiter.check(`rl:auth:verify:${ip}`, 20, 60);
+    if (path === '/auth/otp/request' || path === '/auth/email/otp/request')
+      result = await rateLimiter.check(`rl:auth:req:${ip}`, 10, 60);
+    else if (path === '/auth/otp/verify' || path === '/auth/email/otp/verify')
+      result = await rateLimiter.check(`rl:auth:verify:${ip}`, 20, 60);
+    else if (path.startsWith('/claim/') && (path.endsWith('/otp/send') || path.endsWith('/otp/verify')))
+      result = await rateLimiter.check(`rl:claim:otp:${ip}`, 10, 60);
     else if (path.startsWith('/claim/') && path.endsWith('/redeem'))
       result = await rateLimiter.check(`rl:claim:redeem:${ip}`, 20, 60);
     else if (path.startsWith('/webhooks/')) result = await rateLimiter.check(`rl:webhook:${ip}`, 60, 60);
@@ -137,16 +141,20 @@ export async function buildApp() {
   });
   await emailOtpService.init();
 
-  // Local development without Resend credentials: print codes to the API console instead of
-  // failing. Never active outside NODE_ENV=development.
-  const devConsoleEmail = env.NODE_ENV === 'development' && !env.EMAIL_API_KEY;
+  // Local development/tests without Resend credentials: capture codes instead of failing.
+  // Never active in production, and only when no email API key is configured.
+  const devConsoleEmail = (env.NODE_ENV === 'development' || env.NODE_ENV === 'test') && !env.EMAIL_API_KEY;
+  const outboundEmail: { to: string; subject: string; text: string }[] = [];
   const emailClient = devConsoleEmail
     ? ({
         async sendEmail(params: { to: string; subject: string; text: string }) {
-          console.log(`
+          outboundEmail.push(params);
+          if (env.NODE_ENV === 'development') {
+            console.log(`
 [DEV EMAIL -> ${params.to}] ${params.subject}
 ${params.text}
 `);
+          }
           return {};
         },
       } as unknown as EmailClient)
@@ -316,7 +324,6 @@ ${params.text}
       });
       return tokens;
     } catch (err: unknown) {
-      console.error('VERIFY ERROR:', err);
       const msg = err instanceof Error ? err.message : String(err);
       return reply.unauthorized(msg || 'verify failed');
     }
@@ -445,6 +452,9 @@ ${params.text}
     whatsAppClient,
     smsClient,
     otpService,
+    emailOtpService,
+    emailClient,
+    outboundEmail,
     authService,
   };
 }
