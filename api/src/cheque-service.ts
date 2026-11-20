@@ -16,6 +16,9 @@ import {
   type FiatCurrency,
   generateClaimToken,
   hashClaimToken,
+  generateSessionToken,
+  hashSessionToken,
+  hashOtp,
   transition,
   withTransaction,
   mapChequeRow,
@@ -29,6 +32,7 @@ import {
   type OutboxItem,
 } from '@cheque/core';
 import type { SenderAuthService } from '@cheque/notify';
+import { OtpService, EmailClient } from '@cheque/notify';
 import type { Env } from '@cheque/shared';
 import { logger } from '@cheque/shared';
 import { deriveChequeIdHex, type ChequeContractClient } from '@cheque/chain';
@@ -46,6 +50,8 @@ const CHEQUE_COLS = `
   c.claim_token_hash AS "claimTokenHash",
   c.sender_id AS "senderId",
   c.payee_name AS "payeeName",
+  c.payee_contact_type AS "payeeContactType",
+  c.payee_contact AS "payeeContact",
   c.corridor,
   c.currency,
   c.face_amount_minor::float8 AS "faceAmountMinor",
@@ -83,6 +89,10 @@ export interface ChequeServiceDeps {
   pool: Pool;
   env: Env;
   authService: SenderAuthService;
+  /** Optional email OTP service for recipient claim verification (PRD v4). */
+  emailOtpService?: OtpService;
+  /** Optional email client for OTP delivery (PRD v4). */
+  emailClient?: EmailClient;
   /** Public key of the account that escrows funds; refunds on-chain go back to it. */
   fundingPublicKey?: string;
   /** Builds and relays wallet-signed deposits and cancels. */
@@ -167,7 +177,7 @@ async function enqueue(
 
 /** Funds are on-chain: PENDING_FUNDING -> ACTIVE (idempotent). */
 async function activateFunded(pool: Pool, cheque: Cheque, source: string): Promise<void> {
-  await moveIfStill(pool, cheque.id, 'PENDING_FUNDING', 'ACTIVE', {
+  const moved = await moveIfStill(pool, cheque.id, 'PENDING_FUNDING', 'ACTIVE', {
     ledgerTx: createFundingTransaction({
       chequeId: cheque.id,
       faceAmountMinor: cheque.faceAmountMinor,
@@ -176,6 +186,18 @@ async function activateFunded(pool: Pool, cheque: Cheque, source: string): Promi
     }),
     auditPayload: { source },
   });
+  if (!moved) return;
+  // Release the alert queued at create time (payload already has the claim URL).
+  if (cheque.payeeContact && cheque.payeeContactType === 'EMAIL') {
+    await pool.query(
+      `UPDATE outbox
+          SET next_run_at = NOW(), updated_at = NOW()
+        WHERE topic = 'email:cheque:alert'
+          AND aggregate_id = $1
+          AND status = 'PENDING'`,
+      [cheque.id]
+    );
+  }
 }
 
 /** Reflects confirmed on-chain operations into the off-chain cheque state machine. */
@@ -418,15 +440,17 @@ export function registerChequeRoutes(deps: ChequeServiceDeps): void {
 
     await withTransaction(async (client) => {
       await client.query(
-        `INSERT INTO cheques (id, public_code, claim_token_hash, sender_id, payee_name, face_amount_minor, fee_minor, note, state, expires_at, usdc_amount_stroops, fx_rate,
+        `INSERT INTO cheques (id, public_code, claim_token_hash, sender_id, payee_name, payee_contact_type, payee_contact, face_amount_minor, fee_minor, note, state, expires_at, usdc_amount_stroops, fx_rate,
             corridor, currency, signature, funder_address)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'PENDING_FUNDING',$9,$10,$11,$12,$13,$14,$15)`,
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'PENDING_FUNDING',$11,$12,$13,$14,$15,$16,$17)`,
         [
           chequeId,
           publicCode,
           claimTokenHash,
           userId,
           input.payeeName,
+          input.payeeEmail ? 'EMAIL' : null,
+          input.payeeEmail ?? null,
           face,
           fee,
           input.note ?? null,
@@ -449,6 +473,19 @@ export function registerChequeRoutes(deps: ChequeServiceDeps): void {
          VALUES ($1, 'CHEQUE_CREATED', 'PENDING_FUNDING', 'SENDER', $2::jsonb)`,
         [chequeId, JSON.stringify({ corridor: corridor.code, currency })]
       );
+      if (input.payeeEmail) {
+        const claimUrl = `${env.NEXT_PUBLIC_APP_URL}/c/${rawToken}`;
+        await client.query(
+          `INSERT INTO outbox (id, topic, aggregate_type, aggregate_id, payload, status, next_run_at)
+           VALUES ($1, 'email:cheque:alert', 'cheque', $2, $3, 'PENDING', $4)`,
+          [
+            crypto.randomUUID(),
+            chequeId,
+            JSON.stringify({ chequeId, to: input.payeeEmail, claimUrl }),
+            expiresAt, // held until activateFunded sets next_run_at = NOW(); skipped if never funded
+          ]
+        );
+      }
       if (input.funderAddress) return; // the sender's wallet deposits; see /cheques/:id/tx/*
       const payload: ChainOperationPayload = {
         operation: 'create_cheque',
@@ -665,6 +702,64 @@ export function registerChequeRoutes(deps: ChequeServiceDeps): void {
     return publicView(found.cheque, found.senderName);
   });
 
+  // ---- Recipient email OTP (PRD v4) ---------------------------------------------------------
+  app.post<{ Params: { token: string } }>('/claim/:token/otp/send', async (request, reply) => {
+    if (!deps.emailOtpService || !deps.emailClient) {
+      return reply.serviceUnavailable('Email verification is not configured.');
+    }
+    const found = await loadByToken(pool, request.params.token);
+    if (!found) return reply.notFound('This cheque link is not valid.');
+    const email = found.cheque.payeeContact;
+    if (!email || found.cheque.payeeContactType !== 'EMAIL') {
+      // Cheques issued without a recipient email stay claimable without OTP.
+      return { success: true, skipped: true };
+    }
+    try {
+      const { otp } = await deps.emailOtpService.createOtpSession({ phoneInput: email });
+      await deps.emailClient.sendEmail({
+        to: email,
+        subject: 'Your sencheq verification code',
+        text: `Your verification code is ${otp}. It expires in 5 minutes. Do not share it.`,
+      });
+      return { success: true, message: 'Verification code sent.' };
+    } catch (e) {
+      const msg = (e as Error).message;
+      if (msg.includes('Too many requests') || msg.includes('Please wait')) {
+        return reply.tooManyRequests(msg);
+      }
+      return reply.badRequest(msg);
+    }
+  });
+
+  app.post<{ Params: { token: string }; Body: { otp?: string } }>('/claim/:token/otp/verify', async (request, reply) => {
+    if (!deps.emailOtpService) {
+      return reply.serviceUnavailable('Email verification is not configured.');
+    }
+    const found = await loadByToken(pool, request.params.token);
+    if (!found) return reply.notFound('This cheque link is not valid.');
+    const email = found.cheque.payeeContact;
+    if (!email || found.cheque.payeeContactType !== 'EMAIL') {
+      return reply.badRequest('This cheque has no recipient email to verify.');
+    }
+    const otp = (request.body as { otp?: string } | undefined)?.otp;
+    if (typeof otp !== 'string' || otp.trim() === '') {
+      return reply.badRequest('otp is required');
+    }
+    try {
+      const ok = await deps.emailOtpService.verifyOtp(email, otp.trim());
+      if (!ok) return reply.unauthorized('Invalid verification code.');
+    } catch (e) {
+      return reply.unauthorized((e as Error).message);
+    }
+    const sessionToken = generateSessionToken();
+    await pool.query(
+      `INSERT INTO claim_sessions (cheque_id, otp_hash, attempts, max_attempts, verified_at, expires_at, session_token)
+       VALUES ($1, $2, 0, 5, NOW(), NOW() + INTERVAL '30 minutes', $3)`,
+      [found.cheque.id, hashOtp(otp.trim(), env.OTP_SALT), hashSessionToken(sessionToken)]
+    );
+    return { sessionToken, expiresIn: 1800 };
+  });
+
   app.post<{ Params: { token: string } }>(
     '/claim/:token/redeem',
     async (request, reply) => {
@@ -672,11 +767,31 @@ export function registerChequeRoutes(deps: ChequeServiceDeps): void {
       if (!body.success) {
         return reply.badRequest(body.error.issues.map((i) => i.message).join('; '));
       }
-      const { destination, idempotencyKey } = body.data;
+      const { destination, idempotencyKey, sessionToken } = body.data;
 
       const found = await loadByToken(pool, request.params.token);
       if (!found) return reply.notFound('This cheque link is not valid.');
       const { cheque } = found;
+
+      // When this cheque was addressed to an email, a verified claim session is required.
+      const emailVerificationRequired =
+        !!deps.emailOtpService &&
+        cheque.payeeContactType === 'EMAIL' &&
+        !!cheque.payeeContact;
+      if (emailVerificationRequired) {
+        if (!sessionToken) {
+          return reply.unauthorized('Email verification required before redeeming.');
+        }
+        const session = await pool.query(
+          `SELECT id FROM claim_sessions
+            WHERE cheque_id = $1 AND session_token = $2
+              AND verified_at IS NOT NULL AND expires_at > NOW()`,
+          [cheque.id, hashSessionToken(sessionToken)]
+        );
+        if (!session.rowCount) {
+          return reply.unauthorized('Invalid or expired verification session.');
+        }
+      }
 
       const payoutError = validatePayoutDestination(getCorridor(cheque.corridor), destination);
       if (payoutError) return reply.badRequest(payoutError);

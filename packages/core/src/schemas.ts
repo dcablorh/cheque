@@ -10,6 +10,8 @@ export const STELLAR_ADDRESS_REGEX = /^G[A-Z2-7]{55}$/;
 export const CreateChequeSchema = z
   .object({
     payeeName: z.string().trim().min(2, 'Name must be at least 2 characters').max(100, 'Name cannot exceed 100 characters'),
+    /** Recipient email (PRD v4): cheque is addressed to and claimed via this email. */
+    payeeEmail: z.string().trim().toLowerCase().email('Enter a valid email address').optional(),
     /** Optional client-chosen display id, so the preview number matches the issued cheque. */
     publicCode: z.string().regex(/^CHQ-[2-9A-HJ-NP-Z]{6}$/).optional(),
     /** Stellar account that will deposit USDC. Omit to let the platform account fund the escrow. */
@@ -76,6 +78,7 @@ export const RedeemChequeSchema = z.object({
     confirmedMismatch: z.boolean().default(false),
   }),
   idempotencyKey: z.string().trim().min(8).max(128),
+  sessionToken: z.string().trim().min(16).max(128).optional(),
 });
 
 export type RedeemChequeInput = z.infer<typeof RedeemChequeSchema>;

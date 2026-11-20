@@ -103,6 +103,20 @@ Never commit secret keys. The `.env` file is ignored by git.
 - The FX rates in `.env.example` are placeholders. Replace them with live quotes before launch.
 - Regulatory approval for holding and paying out customer funds is still open. Settle it before any real money moves.
 
+## Running locally (contributors)
+
+1. Install prerequisites: Node 20+, pnpm 10, Docker (Postgres + Redis). Rust + `wasm32v1-none` target only for the contract.
+2. `pnpm install`
+3. `docker compose up -d` (Postgres on 5432, Redis on 6379)
+4. `cp .env.example .env` and fill in secrets; bootstrap writes testnet keys to `.env.local`.
+5. `pnpm bootstrap:testnet`
+6. `pnpm build:contract && pnpm deploy:contract`
+7. Copy env if needed: `cp .env.local api/.env.local`
+8. `pnpm dev` (web: 3100, API: 3001; migrations run on API start)
+9. Optional demo mode: set `NEXT_PUBLIC_DEMO=1` in the frontend env.
+
+Useful: `pnpm test`, `pnpm build`, `pnpm lint`. Without Redis, OTP and IP rate-limit state fall back to in-memory stores for development. Cheque state, the ledger, and the outbox still require Postgres.
+
 ## Contributing
 
 Work on a branch, open a pull request into `main`, and keep changes focused. Run `pnpm test` and `pnpm build` before you push.

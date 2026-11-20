@@ -8,11 +8,13 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 -- 1. Users
 CREATE TABLE IF NOT EXISTS users (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  phone_e164 VARCHAR(20) NOT NULL UNIQUE,
+  phone_e164 VARCHAR(20) UNIQUE,
+  email VARCHAR(255) UNIQUE,
   name VARCHAR(255),
   pin_hash TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT users_contact_check CHECK (phone_e164 IS NOT NULL OR email IS NOT NULL)
 );
 
 -- 2. Cheques
@@ -252,6 +254,13 @@ ALTER TABLE cheques ADD COLUMN IF NOT EXISTS corridor VARCHAR(2) NOT NULL DEFAUL
 ALTER TABLE cheques DROP CONSTRAINT IF EXISTS cheques_corridor_check;
 ALTER TABLE cheques ADD CONSTRAINT cheques_corridor_check CHECK (corridor IN ('GH', 'NG', 'US'));
 
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email VARCHAR(255);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email);
+-- Existing DBs created phone_e164 as NOT NULL; email-only login needs it nullable.
+ALTER TABLE users ALTER COLUMN phone_e164 DROP NOT NULL;
+ALTER TABLE users DROP CONSTRAINT IF EXISTS users_contact_check;
+ALTER TABLE users ADD CONSTRAINT users_contact_check CHECK (phone_e164 IS NOT NULL OR email IS NOT NULL);
+
 ALTER TABLE cheques ADD COLUMN IF NOT EXISTS currency VARCHAR(3) NOT NULL DEFAULT 'GHS';
 ALTER TABLE cheques DROP CONSTRAINT IF EXISTS cheques_currency_check;
 ALTER TABLE cheques ADD CONSTRAINT cheques_currency_check CHECK (currency IN ('GHS', 'NGN', 'USD'));
@@ -259,6 +268,13 @@ ALTER TABLE cheques ADD CONSTRAINT cheques_currency_check CHECK (currency IN ('G
 ALTER TABLE ledger_entries DROP CONSTRAINT IF EXISTS ledger_entries_currency_check;
 ALTER TABLE ledger_entries ADD CONSTRAINT ledger_entries_currency_check
   CHECK (currency IN ('GHS', 'NGN', 'USD', 'USDC'));
+
+-- Session tokens are now stored as SHA-256 hex (64 chars). Expire any leftover plaintext values.
+UPDATE claim_sessions
+   SET expires_at = LEAST(expires_at, NOW()),
+       session_token = NULL
+ WHERE session_token IS NOT NULL
+   AND session_token !~ '^[0-9a-f]{64}$';
 `;
 
 export async function runMigrations(clientOrPool: pg.Pool | pg.PoolClient): Promise<void> {

@@ -79,8 +79,8 @@ export const EnvSchema = z.object({
   EMAIL_API_KEY: z.string().optional(),
 
   // Security & App
-  JWT_SECRET: z.string().min(16).default('development_jwt_secret_must_be_changed_in_prod'),
-  OTP_SALT: z.string().min(16).default('development_otp_salt_must_be_changed_in_prod'),
+  JWT_SECRET: z.string().min(32).default('development_jwt_secret_must_be_changed_in_prod'),
+  OTP_SALT: z.string().min(32).default('development_otp_salt_must_be_changed_in_prod'),
   NEXT_PUBLIC_APP_URL: z.string().url().default('http://localhost:3000'),
   NEXT_PUBLIC_API_URL: z.string().url().default('http://localhost:3001'),
 });
@@ -117,6 +117,12 @@ export function loadEnv(options: { requireSecrets?: boolean } = {}): Env {
     if (!env.FEE_SOURCE_SECRET) missing.push('FEE_SOURCE_SECRET');
     if (!env.SEEV_CASH_API_KEY) missing.push('SEEV_CASH_API_KEY');
     if (!env.WHATSAPP_API_TOKEN) missing.push('WHATSAPP_API_TOKEN');
+
+    // Reject default/weak JWT and OTP secrets in production or when secrets are required.
+    const defaultJwt = 'development_jwt_secret_must_be_changed_in_prod';
+    const defaultOtp = 'development_otp_salt_must_be_changed_in_prod';
+    if (env.JWT_SECRET === defaultJwt || env.JWT_SECRET.length < 32) missing.push('JWT_SECRET');
+    if (env.OTP_SALT === defaultOtp || env.OTP_SALT.length < 32) missing.push('OTP_SALT');
 
     if (missing.length > 0) {
       console.error('❌ FATAL: Missing required real credentials in environment:');

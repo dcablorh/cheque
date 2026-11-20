@@ -272,7 +272,9 @@ impl ChequeContract {
         env.storage()
             .persistent()
             .extend_ttl(&key, TTL_THRESHOLD, TTL_EXTEND_TO);
-
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         env.events().publish(
             (symbol_short!("locked"), cheque_id),
             (to, unlock_after, executable_after),
@@ -319,7 +321,9 @@ impl ChequeContract {
         env.storage()
             .persistent()
             .extend_ttl(&key, TTL_THRESHOLD, TTL_EXTEND_TO);
-
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         env.events()
             .publish((symbol_short!("unlocked"), cheque_id), ());
 
@@ -364,7 +368,9 @@ impl ChequeContract {
         env.storage()
             .persistent()
             .extend_ttl(&key, TTL_THRESHOLD, TTL_EXTEND_TO);
-
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         env.events()
             .publish((symbol_short!("vetoed"), cheque_id), ());
 
@@ -423,7 +429,9 @@ impl ChequeContract {
         env.storage()
             .persistent()
             .extend_ttl(&key, TTL_THRESHOLD, TTL_EXTEND_TO);
-
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         let token_addr: Address = env
             .storage()
             .instance()
@@ -464,7 +472,9 @@ impl ChequeContract {
         env.storage()
             .persistent()
             .extend_ttl(&key, TTL_THRESHOLD, TTL_EXTEND_TO);
-
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         let token_addr: Address = env
             .storage()
             .instance()
@@ -521,7 +531,9 @@ impl ChequeContract {
         env.storage()
             .persistent()
             .extend_ttl(&key, TTL_THRESHOLD, TTL_EXTEND_TO);
-
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         let token_addr: Address = env
             .storage()
             .instance()
@@ -554,6 +566,9 @@ impl ChequeContract {
         env.storage()
             .instance()
             .set(&DataKey::Authority, &new_authority);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         env.events().publish((symbol_short!("authority"),), new_authority);
         Ok(())
     }
@@ -569,6 +584,9 @@ impl ChequeContract {
         env.storage()
             .instance()
             .set(&DataKey::Guardian, &new_guardian);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         env.events().publish((symbol_short!("guardian"),), new_guardian);
         Ok(())
     }
@@ -583,6 +601,9 @@ impl ChequeContract {
         validate_config(&new_config)?;
 
         env.storage().instance().set(&DataKey::Config, &new_config);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         env.events().publish((symbol_short!("config"),), new_config.paused);
         Ok(())
     }
@@ -602,6 +623,9 @@ impl ChequeContract {
             .ok_or(Error::NotInitialized)?;
         config.paused = true;
         env.storage().instance().set(&DataKey::Config, &config);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         env.events().publish((symbol_short!("paused"),), ());
         Ok(())
     }
@@ -621,6 +645,9 @@ impl ChequeContract {
             .ok_or(Error::NotInitialized)?;
         config.paused = false;
         env.storage().instance().set(&DataKey::Config, &config);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         env.events().publish((symbol_short!("unpaused"),), ());
         Ok(())
     }
@@ -636,6 +663,9 @@ impl ChequeContract {
         env.storage()
             .instance()
             .set(&DataKey::PendingAdmin, &new_admin);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         env.events().publish((symbol_short!("adm_prop"),), new_admin);
         Ok(())
     }
@@ -650,6 +680,9 @@ impl ChequeContract {
 
         env.storage().instance().set(&DataKey::Admin, &pending);
         env.storage().instance().remove(&DataKey::PendingAdmin);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         env.events().publish((symbol_short!("adm_acc"),), pending);
         Ok(())
     }
@@ -662,6 +695,9 @@ impl ChequeContract {
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
 
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         env.deployer().update_current_contract_wasm(new_wasm_hash);
         Ok(())
     }
@@ -705,6 +741,13 @@ impl ChequeContract {
         env.storage()
             .instance()
             .get(&DataKey::Guardian)
+            .ok_or(Error::NotInitialized)
+    }
+
+    pub fn token(env: Env) -> Result<Address, Error> {
+        env.storage()
+            .instance()
+            .get(&DataKey::Token)
             .ok_or(Error::NotInitialized)
     }
 }

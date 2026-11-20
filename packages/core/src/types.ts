@@ -39,7 +39,8 @@ export type LedgerAccount =
 
 export interface User {
   id: string;
-  phoneE164: string;
+  phoneE164?: string;
+  email?: string;
   name?: string;
   pinHash?: string;
   createdAt: Date;
@@ -52,6 +53,8 @@ export interface Cheque {
   claimTokenHash: string; // SHA-256 of the 128-bit secret URL token
   senderId: string;
   payeeName: string;
+  payeeContactType?: 'PHONE' | 'EMAIL' | null;
+  payeeContact?: string | null;
   corridor: CorridorCode; // Where the cheque is issued and paid out (see corridors.ts)
   currency: FiatCurrency; // Currency of faceAmountMinor and feeMinor
   faceAmountMinor: number; // Integer minor units of `currency` (pesewas for GHS, kobo for NGN, cents for USD)

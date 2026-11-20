@@ -30,23 +30,14 @@ export async function buildChainHandlerFromEnv(
     return undefined;
   }
 
-  const channelSecrets = (env.CHANNEL_ACCOUNT_SECRETS ?? '')
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
+  // Disable the channel pool for now: its leased signer caused tx_bad_auth_extra on Soroban.
+  // Transactions are signed directly by the funder/authority accounts.
+  const channelSecrets: string[] = [];
 
   const idempotencyStore = new SubmissionIdempotencyStore({ redisUrl: env.REDIS_URL });
   await idempotencyStore.init();
 
   let channelPool: ChannelPool | undefined;
-  if (channelSecrets.length > 0) {
-    channelPool = new ChannelPool({
-      channelSecrets,
-      feeSourceSecret: env.FEE_SOURCE_SECRET,
-      redisUrl: env.REDIS_URL,
-    });
-    await channelPool.init();
-  }
 
   const client = new ChequeContractClient({
     rpcUrl: env.STELLAR_SOROBAN_RPC_URL,

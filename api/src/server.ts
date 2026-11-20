@@ -15,17 +15,22 @@ import {
   SenderAuthService,
   normalizePhone,
   PHONE_ERROR,
+  OtpService,
+  EmailClient,
+  normalizeEmail,
   WhatsAppDeliveryReceipt,
   SmsDeliveryReceipt,
 } from '@cheque/notify';
 import { createOutboxWorker } from './outbox-worker.js';
 import { buildChainHandlerFromEnv } from './chain-runtime.js';
 import { createChainAppliedHook, registerChequeRoutes, startSweeper } from './cheque-service.js';
+import { RateLimiter } from './rate-limit.js';
 
 export async function buildApp() {
   const env = loadEnv();
   const app = fastify({
     logger: false, // Using our PII-masking logger
+    bodyLimit: 256 * 1024,
   });
 
   // Preserve raw request body string for HMAC signature verification
@@ -41,9 +46,44 @@ export async function buildApp() {
   });
 
   await app.register(sensible);
+  // Baseline security headers (defence in depth; no external dependency).
+  app.addHook('onSend', async (_request, reply) => {
+    reply.header('X-Content-Type-Options', 'nosniff');
+    reply.header('X-Frame-Options', 'DENY');
+    reply.header('Referrer-Policy', 'no-referrer');
+    reply.header('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    reply.header('X-XSS-Protection', '0');
+    if (env.NODE_ENV === 'production') {
+      reply.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    }
+  });
   await app.register(cors, {
     origin: [env.NEXT_PUBLIC_APP_URL, 'http://localhost:3100'],
     credentials: true,
+  });
+
+  const rateLimiter = new RateLimiter(env.REDIS_URL);
+  app.addHook('preHandler', async (request, reply) => {
+    const ip = request.ip || 'unknown';
+    const path = request.url.split('?')[0];
+    let result: { allowed: boolean; retryAfter: number } | null = null;
+    if (path === '/auth/otp/request' || path === '/auth/email/otp/request')
+      result = await rateLimiter.check(`rl:auth:req:${ip}`, 10, 60);
+    else if (path === '/auth/otp/verify' || path === '/auth/email/otp/verify')
+      result = await rateLimiter.check(`rl:auth:verify:${ip}`, 20, 60);
+    else if (path.startsWith('/claim/') && (path.endsWith('/otp/send') || path.endsWith('/otp/verify')))
+      result = await rateLimiter.check(`rl:claim:otp:${ip}`, 10, 60);
+    else if (path.startsWith('/claim/') && path.endsWith('/redeem'))
+      result = await rateLimiter.check(`rl:claim:redeem:${ip}`, 20, 60);
+    else if (path.startsWith('/webhooks/')) result = await rateLimiter.check(`rl:webhook:${ip}`, 60, 60);
+    if (result && !result.allowed) {
+      return reply.code(429).send({
+        statusCode: 429,
+        error: 'Too Many Requests',
+        message: `Too many requests. Retry in ${result.retryAfter} seconds.`,
+        retryAfter: result.retryAfter,
+      });
+    }
   });
 
   const pool = getPool({
@@ -94,13 +134,40 @@ export async function buildApp() {
   });
   await otpService.init();
 
+  const emailOtpService = new OtpService({
+    salt: env.OTP_SALT,
+    redisUrl: env.REDIS_URL,
+    normalize: normalizeEmail,
+  });
+  await emailOtpService.init();
+
+  // Local development/tests without Resend credentials: capture codes instead of failing.
+  // Never active in production, and only when no email API key is configured.
+  const devConsoleEmail = (env.NODE_ENV === 'development' || env.NODE_ENV === 'test') && !env.EMAIL_API_KEY;
+  const outboundEmail: { to: string; subject: string; text: string }[] = [];
+  const emailClient = devConsoleEmail
+    ? ({
+        async sendEmail(params: { to: string; subject: string; text: string }) {
+          outboundEmail.push(params);
+          if (env.NODE_ENV === 'development') {
+            console.log(`
+[DEV EMAIL -> ${params.to}] ${params.subject}
+${params.text}
+`);
+          }
+          return {};
+        },
+      } as unknown as EmailClient)
+    : new EmailClient({ apiKey: env.EMAIL_API_KEY });
+
   const authService = new SenderAuthService(
     {
-      jwtSecret: env.JWT_SECRET || 'cheque_jwt_secret_change_for_production',
+      jwtSecret: env.JWT_SECRET,
       redisUrl: env.REDIS_URL,
     },
     otpService,
-    pool
+    pool,
+    emailOtpService
   );
   await authService.init();
 
@@ -109,6 +176,7 @@ export async function buildApp() {
   const outboxWorker = createOutboxWorker({
     redisUrl: env.REDIS_URL,
     onChainOperation: chain?.handler,
+    emailClient,
   });
   outboxWorker.start();
 
@@ -150,7 +218,11 @@ export async function buildApp() {
       forceSms?: boolean;
     };
   }>('/auth/otp/request', async (request, reply) => {
-    const { phone, forceSms } = request.body;
+    const body = request.body as { phone?: unknown; forceSms?: unknown } | undefined;
+    if (!body || typeof body.phone !== 'string' || body.phone.trim() === '') {
+      return reply.badRequest('phone is required');
+    }
+    const { phone, forceSms } = body as { phone: string; forceSms?: boolean };
     const ip = request.ip;
     const deviceFp = request.headers['x-device-fingerprint'] as string | undefined;
 
@@ -192,7 +264,11 @@ export async function buildApp() {
       name?: string;
     };
   }>('/auth/otp/verify', async (request, reply) => {
-    const { phone, otp, name } = request.body;
+    const body = request.body as { phone?: unknown; otp?: unknown; name?: unknown } | undefined;
+    if (!body || typeof body.phone !== 'string' || typeof body.otp !== 'string' || body.otp.trim() === '') {
+      return reply.badRequest('phone and otp are required');
+    }
+    const { phone, otp, name } = body as { phone: string; otp: string; name?: string };
     try {
       const tokens = await authService.verifyLoginOtp({
         phoneInput: phone,
@@ -203,6 +279,53 @@ export async function buildApp() {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       return reply.unauthorized(msg);
+    }
+  });
+
+  // --- EMAIL SENDER AUTHENTICATION ROUTES (PRD v4) ---
+
+  app.post<{ Body: { email: string } }>('/auth/email/otp/request', async (request, reply) => {
+    const body = request.body as { email?: unknown } | undefined;
+    if (!body || typeof body.email !== 'string' || body.email.trim() === '') {
+      return reply.badRequest('email is required');
+    }
+    try {
+      const res = await authService.requestEmailLoginOtp({
+        email: body.email,
+        ipAddress: request.ip,
+        deviceFp: request.headers['x-device-fingerprint'] as string | undefined,
+      });
+      // Send the OTP via Resend
+      await emailClient.sendEmail({
+        to: res.email,
+        subject: 'Your sencheq verification code',
+        text: `Your verification code is ${res.otp}. It expires in 5 minutes. Do not share it.`,
+      });
+      return { success: true, email: res.email, channel: res.channel, message: 'Verification code sent via email.' };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('Too many requests') || msg.includes('Please wait')) {
+        return reply.tooManyRequests(msg);
+      }
+      return reply.badRequest(msg);
+    }
+  });
+
+  app.post<{ Body: { email: string; otp: string; name?: string } }>('/auth/email/otp/verify', async (request, reply) => {
+    const body = request.body as { email?: unknown; otp?: unknown; name?: unknown } | undefined;
+    if (!body || typeof body.email !== 'string' || typeof body.otp !== 'string' || body.otp.trim() === '') {
+      return reply.badRequest('email and otp are required');
+    }
+    try {
+      const tokens = await authService.verifyEmailLoginOtp({
+        email: body.email,
+        otp: body.otp,
+        name: typeof body.name === 'string' ? body.name : undefined,
+      });
+      return tokens;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return reply.unauthorized(msg || 'verify failed');
     }
   });
 
@@ -253,8 +376,8 @@ export async function buildApp() {
 
     const appSecret = env.WHATSAPP_APP_SECRET || env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || 'test_secret';
 
-    // Verify signature if secret provided
-    if (signature && !whatsAppClient.verifyWebhookSignature(rawBody, signature, appSecret)) {
+    // Strict signature verification: reject missing or invalid signatures.
+    if (!signature || !whatsAppClient.verifyWebhookSignature(rawBody, signature, appSecret)) {
       logger.warn('WhatsApp webhook signature verification failed');
       return reply.unauthorized('Invalid webhook signature');
     }
@@ -315,6 +438,8 @@ export async function buildApp() {
     pool,
     env,
     authService,
+    emailOtpService,
+    emailClient,
     fundingPublicKey: chain?.fundingPublicKey,
     chainClient: chain?.client,
     chainEnabled: !!chain,
@@ -327,6 +452,9 @@ export async function buildApp() {
     whatsAppClient,
     smsClient,
     otpService,
+    emailOtpService,
+    emailClient,
+    outboundEmail,
     authService,
   };
 }
