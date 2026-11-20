@@ -18,28 +18,9 @@ Create a `.env.local` file at the **workspace root** (`stellar/cheque/.env.local
 
 ```bash
 # ────────────────────────────────────────────────────────────────
-# Core Stellar Configuration
+# Databases (Docker Compose provides these; defaults match docker-compose.yml)
 # ────────────────────────────────────────────────────────────────
-STELLAR_NETWORK=testnet
-STELLAR_RPC_URL=https://soroban-testnet.stellar.org:443
-STELLAR_HORIZON_URL=https://horizon-testnet.stellar.org
-STELLAR_NETWORK_PASSPHRASE="Test SDF Network ; September 2015"
-
-# Your Stellar account that will deploy/admin the contract
-STELLAR_SECRET_KEY=SXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-STELLAR_PUBLIC_KEY=GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-
-# Deployed contract ID (after running `pnpm deploy:contract`)
-CHEQUE_CONTRACT_ID=CXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-
-# USDC on Stellar Testnet
-USDC_CODE=USDC
-USDC_ISSUER=GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5
-
-# ────────────────────────────────────────────────────────────────
-# Database & Cache (Docker Compose provides these)
-# ────────────────────────────────────────────────────────────────
-DATABASE_URL=postgresql://cheque_user:cheque_pass@localhost:5432/cheque_db
+DATABASE_URL=postgresql://cheque_user:cheque_password@localhost:5432/cheque_db
 REDIS_URL=redis://localhost:6379
 
 # ────────────────────────────────────────────────────────────────
@@ -47,36 +28,63 @@ REDIS_URL=redis://localhost:6379
 # ────────────────────────────────────────────────────────────────
 PORT=3001
 NODE_ENV=development
-LOG_LEVEL=debug
 
-# JWT secrets (generate with `openssl rand -hex 32`)
-JWT_ACCESS_SECRET=your-access-secret-here
-JWT_REFRESH_SECRET=your-refresh-secret-here
-JWT_ACCESS_TTL=15m
-JWT_REFRESH_TTL=7d
+# Auth secrets — generate with: openssl rand -hex 32
+JWT_SECRET=your-32-char-minimum-jwt-secret-here
+OTP_SALT=your-32-char-minimum-otp-salt-here
 
 # ────────────────────────────────────────────────────────────────
-# Email OTP (Resend) — required for email auth & alerts
+# Email (Resend) — OTPs and cheque alerts; leave unset in dev to print to console
 # ────────────────────────────────────────────────────────────────
 EMAIL_API_KEY=re_xxxxxxxxxxxxxxxxxxxxxxxx
-EMAIL_FROM=no-reply@yourdomain.com
-EMAIL_FROM_NAME=sencheq
 
 # ────────────────────────────────────────────────────────────────
-# CCTP (Cross-Chain Transfer Protocol) — Circle
+# Stellar network (testnet defaults; only set if you want to override)
 # ────────────────────────────────────────────────────────────────
-CCTP_ENABLED=true
-CCTP_DOMAIN=0  # 0 = Stellar testnet in Circle's domain mapping
-CCTP_ATTESTATION_URL=https://iris-api-sandbox.circle.com/attestations
+STELLAR_NETWORK=TESTNET
+STELLAR_NETWORK_PASSPHRASE="Test SDF Network ; September 2015"
+STELLAR_HORIZON_URL=https://horizon-testnet.stellar.org
+STELLAR_SOROBAN_RPC_URL=https://soroban-testnet.stellar.org
+
+# USDC on Stellar Testnet (Circle's testnet issuer — fixed constant)
+USDC_ASSET_CODE=USDC
+USDC_ISSUER_ADDRESS=GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5
+
+# Deployed contract ID (printed by `pnpm deploy:contract`)
+CHEQUE_CONTRACT_ID=CXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 # ────────────────────────────────────────────────────────────────
-# Frontend
+# Stellar accounts — DON'T hand-write these: run `pnpm bootstrap:testnet`,
+# which generates and funds every account and writes the keys here.
 # ────────────────────────────────────────────────────────────────
-NEXT_PUBLIC_API_URL=http://localhost:3001
+CONTRACT_ADMIN_SECRET=S...
+CLAIM_AUTHORITY_PUBLIC=G...
+CLAIM_AUTHORITY_SECRET=S...
+GUARDIAN_SECRET=S...
+FUNDING_ACCOUNT_SECRET=S...
+SETTLEMENT_ACCOUNT_PUBLIC=G...
+SETTLEMENT_ACCOUNT_SECRET=S...
+FEE_SOURCE_PUBLIC=G...
+FEE_SOURCE_SECRET=S...
+
+# ────────────────────────────────────────────────────────────────
+# URLs / CORS
+# ────────────────────────────────────────────────────────────────
 NEXT_PUBLIC_APP_URL=http://localhost:3100
+NEXT_PUBLIC_API_URL=http://localhost:3001/api
 ```
 
-**Important**: The frontend and API packages **do not** have their own `.env.local` files — they read from the workspace root.
+**Where env files live:** the **API** reads the workspace-root `.env.local` (its loader
+walks up from the api/ directory). The **frontend** (Next.js) only reads
+`frontend/.env.local` — create it with:
+
+```bash
+NEXT_PUBLIC_APP_URL=http://localhost:3100
+NEXT_PUBLIC_API_URL=http://localhost:3001/api
+```
+
+> The full list of every environment variable, what it does and where to get it is in
+> **[docs/DEPLOY.md §3](./DEPLOY.md#3-environment-variable-reference)**.
 
 ---
 
@@ -120,7 +128,7 @@ pnpm bootstrap:testnet
 # Build the contract (WASM)
 pnpm build:contract
 
-# Deploy to Stellar Testnet (requires STELLAR_SECRET_KEY in .env.local)
+# Deploy to Stellar Testnet (requires CONTRACT_ADMIN_SECRET in .env.local)
 pnpm deploy:contract
 ```
 
@@ -180,8 +188,8 @@ pnpm vitest run api/test/api.test.ts
 | `ECONNREFUSED 5432` | `docker compose up -d` (PostgreSQL not running) |
 | `ECONNREFUSED 6379` | `docker compose up -d` (Redis not running) |
 | `401` on email OTP | Add valid `EMAIL_API_KEY` from Resend |
-| `CCTP not configured` | Set `CCTP_ENABLED=true` + valid Circle credentials |
-| Contract deploy fails | Ensure `STELLAR_SECRET_KEY` has testnet XLM (friendbot) |
+| `CCTP not configured` | Set `CCTP_TOKEN_MESSENGER_MINTER`, `SOLANA_RPC_URL` and `SOLANA_USDC_MINT` (see docs/DEPLOY.md §3.4) |
+| Contract deploy fails | Ensure `CONTRACT_ADMIN_SECRET` has testnet XLM (friendbot) |
 | Wallet connect fails | Use a Stellar wallet (Freighter, Albedo, Lobstr) on testnet |
 
 ---
