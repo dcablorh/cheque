@@ -3,7 +3,16 @@
 import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { CheckCircle2, ExternalLink, Clock, ShieldCheck, Smartphone, Wallet, XCircle } from 'lucide-react';
-import { ApiError, fmtDate, fmtMoney, isStellarAddress, publicApi, timeLeft } from '@/lib/api';
+import {
+  ApiError,
+  explorerTxUrl,
+  fmtDate,
+  fmtMoney,
+  isDestinationAddress,
+  publicApi,
+  timeLeft,
+  type DestinationChain,
+} from '@/lib/api';
 import { COUNTRIES, type CountryCode } from '@/lib/countries';
 import { ChequePaper, ErrorNote, CorridorMap, Logo, Spinner } from '@/components/ui';
 
@@ -22,11 +31,36 @@ interface PublicCheque {
 }
 interface ClaimStatus extends PublicCheque {
   destination: string | null;
+  destinationChain?: DestinationChain | null;
   txHash: string | null;
+  burnTxHash?: string | null;
+  forwardTxHash?: string | null;
+  explorerUrl?: string | null;
+  stellarRedeemTx?: string | null;
+  feeUsdc?: string | null;
+  netUsdc?: string | null;
+  payoutStatus?: string | null;
+  payoutError?: string | null;
   network: string;
 }
 
+interface PayoutQuote {
+  chain: DestinationChain;
+  amountUsdc: string;
+  feeUsdc: string;
+  netUsdc: string;
+  includeRecipientSetup: boolean;
+  minNetUsdc: string;
+  sufficient?: boolean;
+}
+
 type Step = 'summary' | 'verify' | 'destination';
+
+const RAILS: { id: DestinationChain; title: string; hint: string; placeholder: string }[] = [
+  { id: 'stellar', title: 'Stellar USDC', hint: 'Held in Soroban escrow · arrives in seconds', placeholder: 'G…' },
+  { id: 'base', title: 'Base', hint: 'Bridged from Stellar via CCTP · Base Sepolia on testnet', placeholder: '0x…' },
+  { id: 'solana', title: 'Solana', hint: 'Bridged from Stellar via CCTP · paste your wallet, not a token account', placeholder: 'Solana wallet address' },
+];
 
 const DEAD: Record<string, { title: string; body: string }> = {
   CANCELLED: { title: 'Cheque cancelled', body: 'The sender cancelled this cheque.' },
@@ -36,6 +70,12 @@ const DEAD: Record<string, { title: string; body: string }> = {
   PENDING_FUNDING: { title: 'Not ready yet', body: 'The sender is still funding this cheque. Try again in a minute.' },
 };
 
+function chainLabel(chain?: DestinationChain | null): string {
+  if (chain === 'base') return 'Base';
+  if (chain === 'solana') return 'Solana';
+  return 'Stellar';
+}
+
 export default function ClaimPage() {
   const { token } = useParams<{ token: string }>();
   const [cheque, setCheque] = useState<ClaimStatus | null>(null);
@@ -44,7 +84,10 @@ export default function ClaimPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [loadError, setLoadError] = useState('');
+  const [chain, setChain] = useState<DestinationChain>('stellar');
   const [address, setAddress] = useState('');
+  const [quote, setQuote] = useState<PayoutQuote | null>(null);
+  const [quoteError, setQuoteError] = useState('');
   const [otp, setOtp] = useState('');
   const [sessionToken, setSessionToken] = useState('');
   const [otpSent, setOtpSent] = useState(false);
@@ -61,7 +104,7 @@ export default function ClaimPage() {
   }, [token]);
 
   const addressTouched = address.trim().length > 0;
-  const addressValid = isStellarAddress(address);
+  const addressValid = isDestinationAddress(chain, address);
   const dateLabel = (c: PublicCheque) => (c.createdAt ? fmtDate(c.createdAt) : undefined);
 
   useEffect(() => {
@@ -76,6 +119,32 @@ export default function ClaimPage() {
     const t = setInterval(refresh, 2500);
     return () => clearInterval(t);
   }, [cheque, refresh]);
+
+  // Estimated CCTP forwarding fee (from Stellar) once a destination rail is chosen.
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      try {
+        const q = new URLSearchParams({ chain });
+        if (addressValid) q.set('address', address.trim());
+        const res = await publicApi.get<PayoutQuote>(`/claim/${token}/payout-quote?${q.toString()}`);
+        if (!cancelled) {
+          setQuote(res);
+          setQuoteError('');
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setQuote(null);
+          setQuoteError(e instanceof ApiError ? e.message : 'Could not estimate the bridging fee.');
+        }
+      }
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [token, chain, address, addressValid]);
 
   async function run<T>(fn: () => Promise<T>): Promise<T | undefined> {
     setBusy(true);
@@ -93,12 +162,20 @@ export default function ClaimPage() {
     e.preventDefault();
     return run(async () => {
       await publicApi.post(`/claim/${token}/redeem`, {
-        destination: { type: 'USDC', accountRef: address.trim() },
+        destination: { type: 'USDC', chain, accountRef: address.trim() },
         idempotencyKey: idem.current,
         sessionToken: sessionToken || undefined,
       });
       await refresh();
     });
+  };
+
+  const selectRail = (next: DestinationChain) => {
+    setChain(next);
+    setAddress('');
+    setQuote(null);
+    setError('');
+    idem.current = crypto.randomUUID();
   };
 
   if (missing) return <Shell><Dead icon={XCircle} title="Link not valid" body="This cheque link doesn't exist. Check that you copied the whole link." /></Shell>;
@@ -122,19 +199,32 @@ export default function ClaimPage() {
     <ChequePaper currency={cheque.currency} amountValue={cheque.amount} amount={fmtMoney(cheque.amount, cheque.currency)} payee={cheque.payee} from={cheque.senderFirstName} signature={cheque.signature} date={dateLabel(cheque)} note={cheque.note} code={cheque.publicCode} />
   );
 
+  const receiptHref =
+    cheque.explorerUrl ??
+    (cheque.txHash ? explorerTxUrl(cheque.destinationChain ?? 'stellar', cheque.txHash, cheque.network) : null);
+  const receiptLabel =
+    (cheque.destinationChain ?? 'stellar') === 'stellar'
+      ? 'View receipt on Stellar'
+      : `View receipt on ${chainLabel(cheque.destinationChain)}`;
+
   if (cheque.state === 'SETTLED') {
     return (
       <Shell>
         <ChequePaper currency={cheque.currency} amountValue={cheque.amount} amount={fmtMoney(cheque.amount, cheque.currency)} payee={cheque.payee} from={cheque.senderFirstName} signature={cheque.signature} date={dateLabel(cheque)} note={cheque.note} code={cheque.publicCode} stamp="Paid" />
         <div className="card mt-5 animate-rise space-y-3 p-7 text-center" role="status">
           <CheckCircle2 className="mx-auto h-10 w-10 text-brand-600" />
-          <h1 className="display ">{fmtMoney(cheque.amount, cheque.currency)} delivered</h1>
-          <p className="break-all text-sm text-ink-soft">Sent to <span className="font-mono text-xs">{cheque.destination}</span></p>
-          {cheque.txHash && (
+          <h1 className="display">{cheque.netUsdc ? `${cheque.netUsdc} USDC delivered` : `${fmtMoney(cheque.amount, cheque.currency)} delivered`}</h1>
+          <p className="break-all text-sm text-ink-soft">
+            Sent to {chainLabel(cheque.destinationChain)} <span className="font-mono text-xs">{cheque.destination}</span>
+          </p>
+          {cheque.feeUsdc && cheque.destinationChain && cheque.destinationChain !== 'stellar' && (
+            <p className="text-xs text-ink-mute">Forwarding fee from Stellar: {cheque.feeUsdc} USDC</p>
+          )}
+          {receiptHref && (
             <a className="inline-flex items-center gap-1.5 text-sm font-semibold text-brand-700 underline underline-offset-4"
               target="_blank" rel="noreferrer"
-              href={`https://stellar.expert/explorer/${cheque.network === 'PUBLIC' ? 'public' : 'testnet'}/tx/${cheque.txHash}`}>
-              View receipt on Stellar <ExternalLink className="h-3.5 w-3.5" />
+              href={receiptHref}>
+              {receiptLabel} <ExternalLink className="h-3.5 w-3.5" />
             </a>
           )}
         </div>
@@ -143,14 +233,37 @@ export default function ClaimPage() {
   }
 
   if (['AUTHORIZED', 'SETTLING'].includes(cheque.state)) {
+    const dest = cheque.destinationChain ?? 'stellar';
+    const failed = cheque.payoutStatus === 'FAILED';
     return (
       <Shell>
         {paper}
         <div className="card mt-5 flex items-center gap-4 p-6">
-          <Spinner className="h-6 w-6 text-brand-500" />
+          {failed ? <XCircle className="h-6 w-6 shrink-0 text-cedi" /> : <Spinner className="h-6 w-6 shrink-0 text-brand-500" />}
           <div>
-            <p className="font-semibold">Sending your money…</p>
-            <p className="text-sm text-ink-soft">This usually takes under a minute. You can keep this page open.</p>
+            {failed ? (
+              <>
+                <p className="font-semibold">Payout needs a manual recovery</p>
+                <p className="text-sm text-ink-soft">
+                  {cheque.payoutError ?? 'The USDC is still held in the Stellar settlement account. No automatic refund was issued.'}
+                </p>
+              </>
+            ) : dest === 'stellar' ? (
+              <>
+                <p className="font-semibold">Sending your money on Stellar…</p>
+                <p className="text-sm text-ink-soft">Redeeming the Soroban escrow. This usually takes under a minute. You can keep this page open.</p>
+              </>
+            ) : (
+              <>
+                <p className="font-semibold">Bridging from Stellar to {chainLabel(dest)}…</p>
+                <p className="text-sm text-ink-soft">
+                  USDC is leaving the Soroban escrow on Stellar, then Circle CCTP will mint it on {chainLabel(dest)}. This usually takes under a minute.
+                </p>
+                {cheque.burnTxHash && (
+                  <p className="mt-1 text-xs text-ink-mute">Stellar burn submitted. Waiting for the destination mint…</p>
+                )}
+              </>
+            )}
           </div>
         </div>
       </Shell>
@@ -160,6 +273,9 @@ export default function ClaimPage() {
   if (DEAD[cheque.state]) {
     return <Shell><Dead icon={cheque.state === 'PENDING_FUNDING' ? Clock : XCircle} {...DEAD[cheque.state]} /></Shell>;
   }
+
+  const rail = RAILS.find((r) => r.id === chain)!;
+  const netTooLow = quote != null && chain !== 'stellar' && quote.sufficient === false;
 
   return (
     <Shell>
@@ -174,7 +290,7 @@ export default function ClaimPage() {
             <div className="flex gap-3">
               <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-brand-600" />
               <p className="text-sm text-ink-soft">
-                This cheque was sent to you as a link. Claim it, then choose where the money goes.
+                This cheque is funded in USDC in a Stellar (Soroban) escrow. Claim it, then choose a Stellar, Base, or Solana wallet.
               </p>
             </div>
             <ErrorNote>{error}</ErrorNote>
@@ -208,7 +324,7 @@ export default function ClaimPage() {
             });
           }} className="card space-y-5 p-6">
             <div>
-              <h2 className="display ">Verify your email</h2>
+              <h2 className="display">Verify your email</h2>
               <p className="mt-1 text-sm text-ink-soft">Enter the 6-digit code we sent to your email.</p>
             </div>
             <div>
@@ -230,37 +346,81 @@ export default function ClaimPage() {
         {step === 'destination' && (
           <form onSubmit={redeem} className="card space-y-5 p-6">
             <div>
-              <h2 className="display ">Where should it go?</h2>
-              <p className="mt-1 text-sm text-ink-soft">Choose how you want to receive {fmtMoney(cheque.amount, cheque.currency)}.</p>
+              <h2 className="display">Where should it go?</h2>
+              <p className="mt-1 text-sm text-ink-soft">
+                Funds start on Stellar. Claim to a Stellar USDC wallet, or bridge to Base or Solana in one step.
+              </p>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="rounded-[10px] border-2 border-night bg-brand-50 p-4">
-                <Wallet className="mb-2 h-5 w-5 text-brand-700" />
-                <p className="font-semibold">USDC wallet</p>
-                <p className="text-xs text-ink-soft">Stellar address · arrives in seconds</p>
-              </div>
-              <div className="rounded-[10px] border border-ink/10 bg-ink/[.03] p-4 opacity-60">
-                <Smartphone className="mb-2 h-5 w-5 text-ink-mute" />
-                <p className="font-semibold">{COUNTRIES[cheque.corridor ?? 'GH'].localRail}</p>
-                <p className="text-xs text-ink-soft">Coming soon</p>
-              </div>
+            <div className="grid gap-3 sm:grid-cols-3">
+              {RAILS.map((r) => {
+                const selected = chain === r.id;
+                return (
+                  <button
+                    key={r.id}
+                    type="button"
+                    onClick={() => selectRail(r.id)}
+                    className={`rounded-[10px] p-4 text-left ${selected ? 'border-2 border-night bg-brand-50' : 'border border-ink/10 bg-ink/[.03]'}`}
+                    aria-pressed={selected}
+                  >
+                    <Wallet className={`mb-2 h-5 w-5 ${selected ? 'text-brand-700' : 'text-ink-mute'}`} />
+                    <p className="font-semibold">{r.title}</p>
+                    <p className="text-xs text-ink-soft">{r.hint}</p>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="rounded-[10px] border border-ink/10 bg-ink/[.03] p-4 opacity-60">
+              <Smartphone className="mb-2 h-5 w-5 text-ink-mute" />
+              <p className="font-semibold">{COUNTRIES[cheque.corridor ?? 'GH'].localRail}</p>
+              <p className="text-xs text-ink-soft">Coming soon</p>
             </div>
 
             <div>
-              <label className="label" htmlFor="addr">Stellar address</label>
-              <input id="addr" className="field font-mono text-sm" placeholder="G…" spellCheck={false} autoCapitalize="characters"
+              <label className="label" htmlFor="addr">{rail.title} address</label>
+              <input id="addr" className="field font-mono text-sm" placeholder={rail.placeholder} spellCheck={false}
+                autoCapitalize={chain === 'stellar' ? 'characters' : 'none'}
                 autoComplete="off" aria-invalid={addressTouched && !addressValid} aria-describedby="addr-help"
                 value={address} onChange={(e) => setAddress(e.target.value.trim())} />
               <p id="addr-help" className={`mt-1.5 text-xs ${addressTouched && !addressValid ? 'font-semibold text-cedi' : 'text-ink-mute'}`}>
                 {addressTouched && !addressValid
-                  ? `A Stellar address starts with G and has 56 characters. This one has ${address.length}.`
-                  : 'Must be a Stellar account that already holds a USDC trustline.'}
+                  ? chain === 'stellar'
+                    ? `A Stellar address starts with G and has 56 characters. This one has ${address.length}.`
+                    : chain === 'base'
+                      ? 'Enter a 0x… EVM address (42 characters) on Base.'
+                      : 'Enter your Solana wallet address, not a token account or ATA.'
+                  : chain === 'stellar'
+                    ? 'Must be a Stellar account that already holds a USDC trustline.'
+                    : 'You do not need destination gas. The forwarding fee is taken from the USDC minted on the destination chain.'}
               </p>
             </div>
+
+            {quote && (
+              <div className="rounded-[10px] border border-ink/10 bg-paper p-4 text-sm">
+                {chain === 'stellar' ? (
+                  <p>You will receive <span className="font-semibold">{quote.amountUsdc} USDC</span> on Stellar.</p>
+                ) : (
+                  <>
+                    <p>Estimated amount received on {chainLabel(chain)}: <span className="font-semibold">{quote.netUsdc} USDC</span></p>
+                    <p className="mt-1 text-xs text-ink-mute">
+                      Bridging fee from Stellar: {quote.feeUsdc} USDC
+                      {quote.includeRecipientSetup ? ' (includes Solana token-account setup)' : ''}
+                    </p>
+                  </>
+                )}
+              </div>
+            )}
+            {quoteError && chain !== 'stellar' && <p className="text-xs text-cedi">{quoteError}</p>}
+            {netTooLow && (
+              <p className="text-xs font-semibold text-cedi">
+                After the forwarding fee this would deliver less than {quote.minNetUsdc} USDC. Claim to a Stellar USDC address instead.
+              </p>
+            )}
+
             <ErrorNote>{error}</ErrorNote>
-            <button className="btn-primary w-full py-4" disabled={busy || !addressValid}>
-              {busy && <Spinner />} Get my {fmtMoney(cheque.amount, cheque.currency)}
+            <button className="btn-primary w-full py-4" disabled={busy || !addressValid || netTooLow}>
+              {busy && <Spinner />} Get my {chain === 'stellar' ? fmtMoney(cheque.amount, cheque.currency) : `${quote?.netUsdc ?? ''} USDC`}
             </button>
           </form>
         )}
@@ -275,7 +435,7 @@ function Shell({ children }: { children: React.ReactNode }) {
       <div className="relative overflow-hidden bg-night pb-28 pt-5 text-paper">
         <div className="relative z-10 mx-auto flex h-10 max-w-xl items-center justify-between px-5">
           <Logo tone="light" />
-          <span className="eyebrow !text-[11px] text-brand-500">Held in escrow</span>
+          <span className="eyebrow !text-[11px] text-brand-500">Held in Stellar escrow</span>
         </div>
         <CorridorMap className="pointer-events-none absolute inset-x-0 bottom-0 h-28 w-full" />
       </div>
@@ -291,7 +451,7 @@ function Dead({ icon: Icon, title, body }: { icon: React.ComponentType<{ classNa
   return (
     <div className="card animate-rise space-y-3 p-10 text-center">
       <span className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-night/5"><Icon className="h-7 w-7 text-ink-mute" /></span>
-      <h1 className="display ">{title}</h1>
+      <h1 className="display">{title}</h1>
       <p className="text-sm text-ink-soft">{body}</p>
     </div>
   );
