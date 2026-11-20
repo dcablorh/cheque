@@ -498,6 +498,16 @@ describe('Real PostgreSQL Integration & Double-Entry Ledger Property Tests', () 
         `,
         [outboxId]
       );
+      // Keep this test from claiming leftover PENDING rows (other suites share the DB).
+      // The processor marks unregistered topics COMPLETED, which would also steal them.
+      await client.query(
+        `UPDATE outbox
+            SET next_run_at = NOW() + interval '1 day'
+          WHERE status IN ('PENDING', 'FAILED')
+            AND id <> $1
+            AND next_run_at <= NOW()`,
+        [outboxId],
+      );
 
       const processor = new OutboxProcessor(pool);
       let executed = false;
