@@ -14,7 +14,8 @@
     "deploy:contract": "tsx scripts/deploy-contract.ts",
     "e2e:contract": "tsx scripts/e2e-contract-flow.ts",
     "e2e:wallet": "tsx scripts/e2e-wallet-flow.ts",
-    "lint": "pnpm -r run lint"
+    "lint": "pnpm -r run lint",
+    "spike:cctp": "tsx scripts/cctp-spike.ts"
   },
   "devDependencies": {
     "@stellar/stellar-sdk": "^17.2.1",
@@ -22,7 +23,9 @@
     "dotenv": "^16.4.5",
     "tsx": "^4.19.2",
     "typescript": "^5.6.3",
-    "vitest": "^2.1.8"
+    "vitest": "^2.1.8",
+    "viem": "^2.38.0",
+    "@solana/web3.js": "^1.98.4"
   },
   "packageManager": "pnpm@10.13.1",
   "engines": {
