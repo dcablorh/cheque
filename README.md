@@ -42,6 +42,7 @@ Each cheque shows the amount in words and figures, the recipient, the sender, a 
 
 All project documentation is consolidated in the **`docs/`** directory:
 - **[docs/SETUP.md](docs/SETUP.md)** — Manual setup guide (environment, database, email, deployment)
+- **[docs/DEPLOY.md](docs/DEPLOY.md)** — Production deployment: frontend on Vercel, API + Postgres + Redis on Render
 - **[docs/cheque.md](docs/cheque.md)** — Digital Cheques for Ghana implementation spec
 - **[docs/SPEC.md](docs/SPEC.md)** — Core product specification
 - **[docs/PRD.md](docs/PRD.md)** — Product requirements (source document: `docs/sendcheq_PRD_v4.docx`)

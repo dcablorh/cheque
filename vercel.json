@@ -4,32 +4,6 @@
     "frontend": {
       "root": "frontend",
       "framework": "nextjs"
-    },
-    "api": {
-      "root": "api",
-      "entrypoint": "src/app.ts",
-      "functions": {
-        "src/app.ts": {
-          "memory": 1024,
-          "maxDuration": 60
-        }
-      }
     }
-  },
-  "rewrites": [
-    {
-      "source": "/api/(.*)",
-      "destination": { "service": "api" }
-    },
-    {
-      "source": "/(.*)",
-      "destination": { "service": "frontend" }
-    }
-  ],
-  "crons": [
-    {
-      "path": "/api/internal/tick",
-      "schedule": "* * * * *"
-    }
-  ]
+  }
 }
