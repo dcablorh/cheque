@@ -275,6 +275,23 @@ UPDATE claim_sessions
        session_token = NULL
  WHERE session_token IS NOT NULL
    AND session_token !~ '^[0-9a-f]{64}$';
+
+-- Cross-chain USDC claims (Stellar escrow -> Stellar / Base / Solana via CCTP).
+ALTER TABLE destinations ADD COLUMN IF NOT EXISTS chain VARCHAR(16) NOT NULL DEFAULT 'stellar';
+ALTER TABLE destinations DROP CONSTRAINT IF EXISTS destinations_chain_check;
+ALTER TABLE destinations ADD CONSTRAINT destinations_chain_check
+  CHECK (chain IN ('stellar', 'base', 'solana'));
+
+ALTER TABLE payouts ADD COLUMN IF NOT EXISTS dest_chain VARCHAR(16);
+ALTER TABLE payouts DROP CONSTRAINT IF EXISTS payouts_dest_chain_check;
+ALTER TABLE payouts ADD CONSTRAINT payouts_dest_chain_check
+  CHECK (dest_chain IS NULL OR dest_chain IN ('stellar', 'base', 'solana'));
+ALTER TABLE payouts ADD COLUMN IF NOT EXISTS fee_quote_minor BIGINT;
+ALTER TABLE payouts ADD COLUMN IF NOT EXISTS net_amount_minor BIGINT;
+ALTER TABLE payouts ADD COLUMN IF NOT EXISTS cctp_max_fee_minor BIGINT;
+ALTER TABLE payouts ADD COLUMN IF NOT EXISTS cctp_burn_tx VARCHAR(128);
+ALTER TABLE payouts ADD COLUMN IF NOT EXISTS iris_message JSONB;
+ALTER TABLE payouts ADD COLUMN IF NOT EXISTS cctp_forward_tx VARCHAR(128);
 `;
 
 export async function runMigrations(clientOrPool: pg.Pool | pg.PoolClient): Promise<void> {

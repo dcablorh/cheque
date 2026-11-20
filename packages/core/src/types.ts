@@ -1,3 +1,4 @@
+import type { DestinationChain } from './addresses.js';
 import type { CorridorCode, FiatCurrency } from './corridors.js';
 
 export type LedgerCurrency = FiatCurrency | 'USDC';
@@ -21,6 +22,8 @@ export type FundingMethod = 'MOMO' | 'USDC';
 export type FundingStatus = 'PENDING' | 'CONFIRMED' | 'FAILED' | 'EXPIRED';
 
 export type DestinationType = 'MOMO' | 'USDC' | 'BANK';
+
+export type { DestinationChain };
 
 export type MoMoNetwork = 'MTN' | 'TELECEL' | 'AIRTELTIGO';
 
@@ -105,6 +108,8 @@ export interface Destination {
   accountName?: string;
   verifiedNameMatch: boolean;
   memo?: string; // Optional Stellar memo
+  /** For type USDC: stellar (default), base, or solana. */
+  chain?: DestinationChain;
   createdAt: Date;
 }
 
@@ -118,6 +123,13 @@ export interface Payout {
   amountMinor: number;
   attempts: number;
   lastError?: string;
+  destChain?: DestinationChain;
+  feeQuoteMinor?: number; // micro-USDC (6 decimals) forwarding fee quoted at redeem/burn
+  netAmountMinor?: number; // micro-USDC expected/received after the fee
+  cctpMaxFeeMinor?: number;
+  cctpBurnTx?: string;
+  irisMessage?: Record<string, unknown>;
+  cctpForwardTx?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -194,6 +206,13 @@ export interface OutboxItem {
   lockedAt?: Date;
   lockedBy?: string;
   lastError?: string;
+  destChain?: DestinationChain;
+  feeQuoteMinor?: number; // micro-USDC (6 decimals) forwarding fee quoted at redeem/burn
+  netAmountMinor?: number; // micro-USDC expected/received after the fee
+  cctpMaxFeeMinor?: number;
+  cctpBurnTx?: string;
+  irisMessage?: Record<string, unknown>;
+  cctpForwardTx?: string;
   createdAt: Date;
   updatedAt: Date;
 }
