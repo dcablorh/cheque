@@ -192,8 +192,6 @@ impl ChequeContract {
             .extend_ttl(&key, TTL_THRESHOLD, TTL_EXTEND_TO);
         env.storage()
             .instance()
-            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);        env.storage()
-            .instance()
             .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
 
         // Indexed event: (event_name, cheque_id)
