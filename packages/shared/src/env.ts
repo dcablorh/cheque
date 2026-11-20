@@ -33,6 +33,12 @@ export const EnvSchema = z.object({
     .default('GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5'),
   USDC_ASSET_CODE: z.string().default('USDC'),
   CHEQUE_CONTRACT_ID: z.string().optional(),
+  /** USDC Stellar Asset Contract (SAC) id. Defaults to the Circle testnet SAC when unset. */
+  USDC_SAC_CONTRACT_ID: z.string().optional(),
+  CCTP_TOKEN_MESSENGER_MINTER: z.string().optional(),
+  IRIS_API_URL: z.string().url().optional(),
+  SOLANA_RPC_URL: z.string().url().optional(),
+  SOLANA_USDC_MINT: z.string().optional(),
 
   // Keypairs & Signers (Secrets)
   CONTRACT_ADMIN_SECRET: z.string().min(56).optional(),
