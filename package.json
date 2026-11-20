@@ -15,7 +15,8 @@
     "e2e:contract": "tsx scripts/e2e-contract-flow.ts",
     "e2e:wallet": "tsx scripts/e2e-wallet-flow.ts",
     "lint": "pnpm -r run lint",
-    "spike:cctp": "tsx scripts/cctp-spike.ts"
+    "spike:cctp": "tsx scripts/cctp-spike.ts",
+    "e2e:cctp": "tsx scripts/e2e-cctp-claim.ts"
   },
   "devDependencies": {
     "@stellar/stellar-sdk": "^17.2.1",
