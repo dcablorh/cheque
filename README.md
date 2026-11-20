@@ -115,7 +115,7 @@ Never commit secret keys. The `.env` file is ignored by git.
 8. `pnpm dev` (web: 3100, API: 3001; migrations run on API start)
 9. Optional demo mode: set `NEXT_PUBLIC_DEMO=1` in the frontend env.
 
-Useful: `pnpm test`, `pnpm build`, `pnpm lint`. Without Postgres/Redis, the API falls back to in-memory storage for dev.
+Useful: `pnpm test`, `pnpm build`, `pnpm lint`. Without Redis, OTP and IP rate-limit state fall back to in-memory stores for development. Cheque state, the ledger, and the outbox still require Postgres.
 
 ## Contributing
 
