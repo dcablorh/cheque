@@ -131,8 +131,11 @@ function SignIn({ onDone }: { onDone: () => void }) {
 
   return (
     <main className="mx-auto grid min-h-screen max-w-md content-center gap-8 px-5 py-10">
-      <Link href="/" className="justify-self-center">
+      <Link href="/" className="justify-self-start">
         <Logo />
+      </Link>
+      <Link href="/" className="justify-self-start mt-4 text-sm text-ink-soft hover:text-ink underline underline-offset-4">
+        ← Back to home
       </Link>
       <div className="card animate-rise p-7">
         <h1 className="display ">{step === 'email' ? 'Welcome back' : 'Enter your code'}</h1>
