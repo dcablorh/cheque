@@ -2,6 +2,16 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
+import {
+  isMobileBrowser,
+  planWalletModules,
+  PUBLIC_PASSPHRASE,
+  readWalletConnectProjectId,
+  walletConnectChain,
+  type NavigatorLike,
+  type WalletModuleLike,
+} from './wallet-platform';
+
 const KEY = 'cheque.wallet.v1';
 
 interface WalletCtx {
@@ -18,6 +28,31 @@ const Ctx = createContext<WalletCtx | null>(null);
 
 let kitReady: Promise<typeof import('@creit.tech/stellar-wallets-kit/sdk')['StellarWalletsKit']> | null = null;
 
+const WC_PROJECT_ID = readWalletConnectProjectId(process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID);
+
+/** WalletConnect (Reown) bridge: how phone wallet apps (LOBSTR, Freighter, xBull…) connect. Client-only. */
+async function loadWalletConnect(networkPassphrase: string): Promise<WalletModuleLike | null> {
+  if (!WC_PROJECT_ID) return null;
+  try {
+    const { WalletConnectModule, WalletConnectTargetChain } = await import('@creit.tech/stellar-wallets-kit/modules/wallet-connect');
+    const chain = walletConnectChain(networkPassphrase) === 'stellar:pubnet' ? WalletConnectTargetChain.PUBLIC : WalletConnectTargetChain.TESTNET;
+    const origin = window.location.origin;
+    return new WalletConnectModule({
+      projectId: WC_PROJECT_ID,
+      allowedChains: [chain],
+      metadata: {
+        name: 'Sencheq',
+        description: 'Send USDC cheques by email on Stellar.',
+        url: origin,
+        icons: [`${origin}/brand/sencheq-app-icon.png`],
+      },
+    }) as unknown as WalletModuleLike;
+  } catch (e) {
+    console.error('WalletConnect failed to load', e);
+    return null;
+  }
+}
+
 /** Loads the wallet kit on first use only: it touches `window`, so it can never run on the server. */
 function loadKit(networkPassphrase: string) {
   if (!kitReady) {
@@ -27,8 +62,19 @@ function loadKit(networkPassphrase: string) {
         import('@creit.tech/stellar-wallets-kit/modules/utils'),
         import('@creit.tech/stellar-wallets-kit/types'),
       ]);
-      const isMainnet = networkPassphrase === 'Public Global Stellar Network ; September 2015';
-      StellarWalletsKit.init({ modules: defaultModules(), network: isMainnet ? Networks.PUBLIC : Networks.TESTNET });
+      const isMainnet = networkPassphrase === PUBLIC_PASSPHRASE;
+      const mobile = isMobileBrowser(navigator as NavigatorLike);
+      const modules = planWalletModules({
+        mobile,
+        defaults: defaultModules() as unknown as WalletModuleLike[],
+        walletConnect: await loadWalletConnect(networkPassphrase),
+      });
+      StellarWalletsKit.init({
+        modules: modules as unknown as Parameters<typeof StellarWalletsKit.init>[0]['modules'],
+        network: isMainnet ? Networks.PUBLIC : Networks.TESTNET,
+        // On phones nothing is "installed" as an extension; never send users to a download page.
+        ...(mobile ? { authModal: { showInstallLabel: false } } : {}),
+      });
       return StellarWalletsKit;
     })();
   }

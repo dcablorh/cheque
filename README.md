@@ -95,6 +95,7 @@ All settings live in `.env`. See `.env.example` for the full list and the commen
 - **Email:** the Resend key for sender login OTP, payee claim verification and cheque notifications
 - **Pricing:** `ENABLED_CORRIDORS`, FX rates per corridor, and `FEE_BPS` (100 bps = 1%)
 - **Security:** `JWT_SECRET` and `OTP_SALT`. Change both before any shared deployment.
+- **Wallets (frontend):** `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID`, a free Reown (WalletConnect) Cloud project id from https://cloud.reown.com. Phone browsers have no wallet extensions, so mobile wallet apps (LOBSTR, Freighter, xBull…) can only connect through WalletConnect. Without it, phones see a "WalletConnect is not set up" message and can only use Albedo, xBull web, or a wallet's in-app browser. Add your site's domain (and any tunnel URL used for phone testing) to the project's allowed domains. Set it in `frontend/.env.local` locally or in the Vercel project env. It is public by design and is inlined at build time, so rebuild after changing it.
 
 Never commit secret keys. The `.env` file is ignored by git.
 
