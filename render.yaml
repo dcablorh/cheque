@@ -94,11 +94,6 @@ services:
       - key: CHANNEL_ACCOUNT_SECRETS
         sync: false
 
-      # --- FX / corridors (defaults apply if unset) ---
-      - key: FX_GHS_PER_USDC
-        sync: false
-      - key: ENABLED_CORRIDORS
-        sync: false
 
   # Redis-compatible Key Value (Valkey 8) — a SERVICE, not a database.
   # Internal-only (ipAllowList: []): reachable from cheque-api over Render's
