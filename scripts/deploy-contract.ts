@@ -33,8 +33,8 @@ const rpcServer = new rpc.Server(SOROBAN_RPC_URL);
 
 /** Mirrors the contract defaults documented in docs/CONTRACT.md. */
 const DEFAULT_CONFIG = {
-  minAmount: 10_000_000n, // 1 USDC
-  maxAmount: 20_000_000_000n, // 2,000 USDC
+  minAmount: 1_000n, // 0.0001 USDC floor; fiat minimums (1.5 in each currency) are enforced app-side
+  maxAmount: 10_000_000_000_000n, // 1,000,000 USDC
   maxLockSecs: 3600,
   delayThreshold: 500_000_000n, // 50 USDC
   delaySecs: 900,
