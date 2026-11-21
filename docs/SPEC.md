@@ -6,12 +6,12 @@ This builds on your concept doc. It keeps your architecture and adds: the missin
 ## 1. Gaps in the original concept (decide these first)
 | # | Gap | Recommendation |
 |---|---|---|
-| 1 | How does a Ghanaian sender fund the cheque? The doc says "USDC", but most senders hold MoMo, not USDC. | Primary: fund with MoMo (SeevCash on-ramp deposit via SEP-6, or a MoMo collection partner). Secondary: fund with USDC. Sender still sees only "Pay ₵505". |
+| 1 | How does a Ghanaian sender fund the cheque? The doc says "USDC", but most senders hold MoMo, not USDC. | Primary: fund with MoMo (via the MoraPay payout integration, Phase 2). Secondary: fund with USDC. Sender still sees only "Pay ₵505". |
 | 2 | Who bears FX/fee? | Cheque face value is fixed in GHS. Sender pays fee on top; recipient gets the full ₵500 (MoMo network fees aside). Lock the USDC quote at funding time and add a small buffer. |
 | 3 | Link is guessable (CHQ-82F91K is short). | Use two identifiers: public human code (CHQ-82F91K, display only) and a 128-bit random claim token in the URL. |
 | 4 | Forwarded link / wrong number / SIM swap. | OTP is necessary but not sufficient. Add attempt limits, an informational name-match warning on payout, amount-based step-up, and sender-visible alerts (section 5). |
-| 5 | Whose KYC does SEP-12 need? Anchors usually KYC the customer (the recipient) at some threshold. | Ask SeevCash for limits/tiers. Design a "KYC required" step in the claim flow that only appears above the threshold. |
-| 6 | Bank payout is unproven. SeevCash docs describe Mobile Money; bank is flagged "subject to availability". | V1 = MoMo + USDC. Bank is Phase 2 behind a feature flag. |
+| 5 | Whose KYC does SEP-12 need? Anchors usually KYC the customer (the recipient) at some threshold. | Confirm limits/tiers with MoraPay and legal. Design a "KYC required" step in the claim flow that only appears above the threshold. |
+| 6 | Bank payout is unproven. MoMo payout rails are well documented; bank payout availability varies by provider. | V1 = MoMo + USDC. Bank is Phase 2 behind a feature flag. |
 | 7 | Regulation. Holding customer funds and paying out in GHS is regulated (Bank of Ghana). | Get legal advice early; likely operate under a licensed partner. Affects custody and limits, so settle it before launch. |
 | 8 | Terminal FAILED while money is in flight is dangerous. | Payout failures are retryable and loop back to AUTHORIZED; funds stay locked (section 6). |
 
@@ -20,7 +20,7 @@ This builds on your concept doc. It keeps your architecture and adds: the missin
 - Sender answers who; recipient answers where.
 - Money is locked at funding and can leave only once.
 - Every state change is logged and reversible by refund, never silently lost.
-- The settlement provider is replaceable (adapter pattern).
+- The payout provider is replaceable (adapter pattern; MoraPay planned for Ghana MoMo/bank payouts).
 
 ## 3. Cheque lifecycle
 ```
@@ -104,7 +104,7 @@ Cards in this order: Mobile Money (default, preselected), USDC; Bank appears in 
 
 #### Mobile Money
 - Network (MTN / Telecel / AirtelTigo), number, prefilled with WhatsApp number but editable.
-- Account-name lookup (if SeevCash/MoMo API supports it): show the registered name and compare to the cheque payee name. The lookup is informational, never blocking: the recipient may send to a number registered to a different name. On mismatch show the registered name, a clear warning, and require an explicit "Yes, this is my number" confirmation. Log the result for fraud analytics.
+- Account-name lookup (MoraPay supports it via /rails/resolve): show the registered name and compare to the cheque payee name. The lookup is informational, never blocking: the recipient may send to a number registered to a different name. On mismatch show the registered name, a clear warning, and require an explicit "Yes, this is my number" confirmation. Log the result for fraud analytics.
 
 #### USDC
 - Paste Stellar address. Validate checksum (G… 56 chars), and check the account exists and has a USDC trustline; if not, explain simply ("This wallet can't receive USDC yet") and offer MoMo instead. Support memo field for exchange deposits.
@@ -134,8 +134,8 @@ Cards in this order: Mobile Money (default, preselected), USDC; Bank appears in 
 - Unique constraint on `payouts(cheque_id) WHERE status IN ('PENDING','SENT','CONFIRMED')`, so only one live payout per cheque exists.
 - Idempotency keys on every mutating endpoint (stored with the response).
 - Webhook dedupe: store provider event IDs with a unique index; processing is idempotent.
-- Outbox pattern: DB transaction writes state + an outbox row; a worker calls SeevCash/Stellar. Never call external APIs inside the DB transaction.
-- Reconciliation job (every few minutes): compare SETTLING payouts against SeevCash status and Stellar transactions; fix drift automatically or flag.
+- Outbox pattern: DB transaction writes state + an outbox row; a worker calls MoraPay/Stellar. Never call external APIs inside the DB transaction.
+- Reconciliation job (every few minutes): compare SETTLING payouts against MoraPay status and Stellar transactions; fix drift automatically or flag.
 
 ### 6.2 Ledger
 - Use double-entry accounting (immutable entries): sender_funds → cheque_escrow → payout_pending → settled, plus fees and fx_buffer accounts. State and money must always reconcile. Amounts stored as integer minor units (pesewas) and USDC at 7 decimals (stroops), never floats.
@@ -160,7 +160,7 @@ interface SettlementAdapter {
   refund(cheque: Cheque): Promise<RefundRef>;
 }
 ```
-- Implementations: SeevCashAdapter (SEP-1 discovery on boot, SEP-10 JWT cached and refreshed, SEP-12, SEP-38, SEP-6 default, SEP-24 fallback) and StellarUsdcAdapter (direct USDC send). Add a MockAdapter for dev and tests.
+- Implementations: MoraPayAdapter (REST API + webhook integration behind the SettlementAdapter interface) and StellarUsdcAdapter (direct USDC send). Add a MockAdapter for dev and tests.
 
 ### 6.6 Failure semantics
 - Retryable failure (network, provider timeout): auto-retry with backoff, same idempotency key, stay SETTLING.
@@ -216,7 +216,7 @@ interface SettlementAdapter {
 - `GET /v1/claim/:token/status` poll/SSE
 
 ### Webhooks & Background
-- Webhooks in: SeevCash transaction updates, Stellar payment detection, WhatsApp delivery receipts, MoMo collection callbacks.
+- Webhooks in: settlement-provider transaction updates, Stellar payment detection, MoMo collection callbacks.
 - Background jobs: expiry sweeper, refund processor, outbox worker, reconciler, quote refresher, notification scheduler.
 
 ## 11. Observability and ops

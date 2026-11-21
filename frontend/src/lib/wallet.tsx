@@ -1,10 +1,8 @@
 'use client';
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { DEMO } from './demo';
 
 const KEY = 'cheque.wallet.v1';
-const DEMO_ADDRESS = 'GDEMOWALLETDEMOWALLETDEMOWALLETDEMOWALLETDEMOWALLETDEMO7';
 
 interface WalletCtx {
   address: string | null;
@@ -21,7 +19,7 @@ const Ctx = createContext<WalletCtx | null>(null);
 let kitReady: Promise<typeof import('@creit.tech/stellar-wallets-kit/sdk')['StellarWalletsKit']> | null = null;
 
 /** Loads the wallet kit on first use only: it touches `window`, so it can never run on the server. */
-function loadKit() {
+function loadKit(networkPassphrase: string) {
   if (!kitReady) {
     kitReady = (async () => {
       const [{ StellarWalletsKit }, { defaultModules }, { Networks }] = await Promise.all([
@@ -29,17 +27,19 @@ function loadKit() {
         import('@creit.tech/stellar-wallets-kit/modules/utils'),
         import('@creit.tech/stellar-wallets-kit/types'),
       ]);
-      StellarWalletsKit.init({ modules: defaultModules(), network: Networks.TESTNET });
+      const isMainnet = networkPassphrase === 'Public Global Stellar Network ; September 2015';
+      StellarWalletsKit.init({ modules: defaultModules(), network: isMainnet ? Networks.PUBLIC : Networks.TESTNET });
       return StellarWalletsKit;
     })();
   }
   return kitReady;
 }
 
-export function WalletProvider({ children }: { children: React.ReactNode }) {
+export function WalletProvider({ children, networkPassphrase }: { children: React.ReactNode; networkPassphrase?: string }) {
   const [address, setAddress] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const np = networkPassphrase ?? 'Test SDF Network ; September 2015';
 
   useEffect(() => {
     try {
@@ -63,8 +63,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     setBusy(true);
     setError('');
     try {
-      if (DEMO) return remember(DEMO_ADDRESS);
-      const kit = await loadKit();
+      const kit = await loadKit(np);
       const { address: a } = await kit.authModal();
       remember(a);
     } catch (e) {
@@ -74,22 +73,21 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setBusy(false);
     }
-  }, []);
+  }, [np]);
 
   const disconnect = useCallback(async () => {
     try {
-      if (!DEMO) await (await loadKit()).disconnect();
+      await (await loadKit(np)).disconnect();
     } catch {
       /* ignore */
     }
     remember(null);
-  }, []);
+  }, [np]);
 
   const sign = useCallback(
     async (xdr: string, networkPassphrase: string) => {
       if (!address) throw new Error('Connect a wallet first.');
-      if (DEMO) return xdr;
-      const kit = await loadKit();
+      const kit = await loadKit(networkPassphrase);
       const { signedTxXdr } = await kit.signTransaction(xdr, { networkPassphrase, address });
       return signedTxXdr;
     },
@@ -120,7 +118,6 @@ export async function fetchUsdcBalance(
   horizonUrl: string,
   usdc: { code: string; issuer: string }
 ): Promise<UsdcBalance> {
-  if (DEMO) return { usdc: 2500, exists: true };
   const res = await fetch(`${horizonUrl}/accounts/${address}`);
   if (res.status === 404) return { usdc: null, exists: false };
   if (!res.ok) throw new Error('Could not read the wallet balance.');

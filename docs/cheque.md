@@ -5,12 +5,12 @@ This builds on your concept doc. It keeps your architecture and adds: the missin
 
 1. Gaps in the original concept (decide these first)
 #	Gap	Recommendation
-1	How does a Ghanaian sender fund the cheque? The doc says "USDC", but most senders hold MoMo, not USDC.	Primary: fund with MoMo (SeevCash on-ramp deposit via SEP-6, or a MoMo collection partner). Secondary: fund with USDC. Sender still sees only "Pay ₵505".
+1	How does a Ghanaian sender fund the cheque? The doc says "USDC", but most senders hold MoMo, not USDC.	Primary: fund with MoMo (via the MoraPay payout integration, Phase 2). Secondary: fund with USDC. Sender still sees only "Pay ₵505".
 2	Who bears FX/fee?	Cheque face value is fixed in GHS. Sender pays fee on top; recipient gets the full ₵500 (MoMo network fees aside). Lock the USDC quote at funding time and add a small buffer.
 3	Link is guessable (CHQ-82F91K is short).	Use two identifiers: public human code (CHQ-82F91K, display only) and a 128-bit random claim token in the URL.
 4	Forwarded link / wrong number / SIM swap.	OTP is necessary but not sufficient. Add attempt limits, an informational name-match warning on payout, amount-based step-up, and sender-visible alerts (section 5).
-5	Whose KYC does SEP-12 need? Anchors usually KYC the customer (the recipient) at some threshold.	Ask SeevCash for limits/tiers. Design a "KYC required" step in the claim flow that only appears above the threshold.
-6	Bank payout is unproven. SeevCash docs describe Mobile Money; bank is flagged "subject to availability".	V1 = MoMo + USDC. Bank is Phase 2 behind a feature flag.
+5	Whose KYC does SEP-12 need? Anchors usually KYC the customer (the recipient) at some threshold.	Confirm limits/tiers with MoraPay and legal. Design a "KYC required" step in the claim flow that only appears above the threshold.
+6	Bank payout is unproven. MoraPay supports MoMo and bank payouts in Ghana (GHIPSS).	V1 = MoMo + USDC. Bank is Phase 2 behind a feature flag.
 7	Regulation. Holding customer funds and paying out in GHS is regulated (Bank of Ghana).	Get legal advice early; likely operate under a licensed partner. Affects custody and limits, so settle it before launch.
 8	Terminal FAILED while money is in flight is dangerous.	Payout failures are retryable and loop back to AUTHORIZED; funds stay locked (section 6).
 2. Product principles
@@ -18,7 +18,7 @@ The user sees a cheque, never Stellar, USDC, or SEPs.
 Sender answers who; recipient answers where.
 Money is locked at funding and can leave only once.
 Every state change is logged and reversible by refund, never silently lost.
-The settlement provider is replaceable (adapter pattern).
+The payout provider is replaceable (adapter pattern; MoraPay planned for Ghana MoMo/bank payouts).
 3. Cheque lifecycle
 sender confirms
 
@@ -126,7 +126,7 @@ Cards in this order: Mobile Money (default, preselected), USDC; Bank appears in 
 Mobile Money
 
 Network (MTN / Telecel / AirtelTigo), number, prefilled with WhatsApp number but editable.
-Account-name lookup (if SeevCash/MoMo API supports it): show the registered name and compare to the cheque payee name. The lookup is informational, never blocking: the recipient may send to a number registered to a different name. On mismatch show the registered name, a clear warning, and require an explicit "Yes, this is my number" confirmation. Log the result for fraud analytics.
+Account-name lookup (MoraPay supports it via /rails/resolve): show the registered name and compare to the cheque payee name. The lookup is informational, never blocking: the recipient may send to a number registered to a different name. On mismatch show the registered name, a clear warning, and require an explicit "Yes, this is my number" confirmation. Log the result for fraud analytics.
 USDC
 
 Paste Stellar address. Validate checksum (G… 56 chars), and check the account exists and has a USDC trustline; if not, explain simply ("This wallet can't receive USDC yet") and offer MoMo instead. Support memo field for exchange deposits.
@@ -152,8 +152,8 @@ Atomic state transition in Postgres: UPDATE cheques SET state='SETTLING', ... WH
 Unique constraint on payouts(cheque_id) WHERE status IN ('PENDING','SENT','CONFIRMED'), so only one live payout per cheque exists.
 Idempotency keys on every mutating endpoint (stored with the response).
 Webhook dedupe: store provider event IDs with a unique index; processing is idempotent.
-Outbox pattern: DB transaction writes state + an outbox row; a worker calls SeevCash/Stellar. Never call external APIs inside the DB transaction.
-Reconciliation job (every few minutes): compare SETTLING payouts against SeevCash status and Stellar transactions; fix drift automatically or flag.
+Outbox pattern: DB transaction writes state + an outbox row; a worker calls MoraPay/Stellar. Never call external APIs inside the DB transaction.
+Reconciliation job (every few minutes): compare SETTLING payouts against MoraPay status and Stellar transactions; fix drift automatically or flag.
 6.2 Ledger
 Use double-entry accounting (immutable entries): sender_funds → cheque_escrow → payout_pending → settled, plus fees and fx_buffer accounts. State and money must always reconcile. Amounts stored as integer minor units (pesewas) and USDC at 7 decimals (stroops), never floats.
 
@@ -171,7 +171,7 @@ fund(cheque) -> FundingRef
 settle(cheque, destination, idempotencyKey) -> PayoutRef
 status(payoutRef) -> PENDING | SUCCESS | FAILED(reason, retryable)
 refund(cheque) -> RefundRef
-Implementations: SeevCashAdapter (SEP-1 discovery on boot, SEP-10 JWT cached and refreshed, SEP-12, SEP-38, SEP-6 default, SEP-24 fallback) and StellarUsdcAdapter (direct USDC send). Add a MockAdapter for dev and tests.
+Implementations: MoraPayAdapter (REST API + webhook integration behind the SettlementAdapter interface) and StellarUsdcAdapter (direct USDC send). Add a MockAdapter for dev and tests.
 
 6.6 Failure semantics
 Retryable failure (network, provider timeout): auto-retry with backoff, same idempotency key, stay SETTLING.
@@ -226,7 +226,7 @@ POST /v1/claim/:token/verify → claim session
 POST /v1/claim/destinations/validate (MoMo name lookup / Stellar address + trustline check)
 POST /v1/claim/:token/redeem (idempotency-key required)
 GET /v1/claim/:token/status poll/SSE
-Webhooks in: SeevCash transaction updates, Stellar payment detection, WhatsApp delivery receipts, MoMo collection callbacks.
+Webhooks in: MoraPay transaction updates (`payout.status_updated`), Stellar payment detection, MoMo collection callbacks.
 
 Background jobs: expiry sweeper, refund processor, outbox worker, reconciler, quote refresher, notification scheduler.
 
@@ -238,11 +238,11 @@ Admin console: search by code/phone, timeline view, retry payout, force refund (
 TypeScript (Node/NestJS or Fastify), Postgres, Redis (rate limits, OTP, locks), a durable job queue (BullMQ or Temporal), Stellar JS SDK, Next.js mobile-first claim and sender web app (PWA), Cloud KMS/HSM for keys, Sentry + OpenTelemetry.
 
 13. Build phases
-Phase 0 — Validate (1 to 2 weeks) Get SeevCash sandbox. Confirm: SEP-6 withdrawal to MoMo fields, limits, fees, KYC thresholds, settlement time, webhook behavior, name-lookup support, bank payout availability, sender on-ramp option. Start legal and licensing conversation. Start WhatsApp template approval.
+Phase 0 — Validate (1 to 2 weeks) Onboard MoraPay. Confirm: payout fields, limits, fees, KYC thresholds, settlement time, webhook behavior, name-lookup support, bank payout availability, sender on-ramp option. Start legal and licensing conversation.
 
 Phase 1 — Core MVP (4 to 6 weeks) Cheque engine + ledger + state machine, MockAdapter, sender create/fund (USDC first if MoMo collection isn't ready), WhatsApp OTP, recipient claim with USDC payout (simplest, no off-ramp dependency), idempotency and tests for double redemption.
 
-Phase 2 — Ghana payout (3 to 4 weeks) SeevCashAdapter: SEP-1/10/38/6, MoMo payout, name lookup (warning only), KYC step (SEP-12), reconciliation, retry/refund flows.
+Phase 2 — Ghana payout (3 to 4 weeks) MoraPayAdapter: MoMo payout, name lookup (warning only), KYC step, reconciliation, retry/refund flows.
 
 Phase 3 — Hardening and pilot Limits, fraud rules, admin console, load and chaos tests, security review, closed pilot with capped amounts.
 
@@ -250,7 +250,7 @@ Phase 4 — Growth MoMo funding polish, bank payouts, wallet connect, bulk chequ
 
 14. Test checklist (must pass before pilot)
 50 parallel redeem requests on one cheque → exactly one payout.
-Duplicate and out-of-order SeevCash webhooks → no double state change.
+Duplicate and out-of-order MoraPay webhooks → no double state change.
 Crash between "payout sent" and "DB commit" → reconciler heals correctly.
 Expiry racing with claim → defined winner, no lost funds.
 OTP brute force, token enumeration, replayed claim session → blocked.
@@ -259,7 +259,7 @@ Refund path for every terminal non-settled state.
 15. Open decisions for you
 Sender funding at launch: MoMo or USDC-only?
 Fee model and rate (flat vs percentage; recommended: sender pays).
-V1 amount caps and KYC tiers (confirm with SeevCash and legal).
+V1 amount caps and KYC tiers (confirm with MoraPay and legal).
 Does the platform auto-message the recipient on WhatsApp, or only sender-initiated sharing?
 Custody: own pooled treasury vs fully partner-held.
 Brand and domain (cheq.app) and support channel (WhatsApp support line recommended).

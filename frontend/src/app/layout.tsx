@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import { Inter, Antonio, DM_Mono } from 'next/font/google';
 import './globals.css';
-import { WalletProvider } from '@/lib/wallet';
+import { WalletProviderWrapper } from '@/components/WalletProviderWrapper';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 const display = Antonio({ subsets: ['latin'], weight: ['400', '700'], variable: '--font-display' });
@@ -19,7 +19,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className={`${inter.variable} ${display.variable} ${mono.variable}`}>
       <body>
-        <WalletProvider>{children}</WalletProvider>
+        <WalletProviderWrapper>{children}</WalletProviderWrapper>
       </body>
     </html>
   );

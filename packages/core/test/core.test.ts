@@ -11,7 +11,6 @@ import {
   convertGhsToUsdcStroops,
   convertUsdcStroopsToGhs,
   roundDivision,
-  maskPhone,
   maskName,
   maskAccountRef,
   generateClaimToken,
@@ -100,12 +99,7 @@ describe('Money Utils (Pesewas, Stroops, Explicit Rounding)', () => {
 });
 
 describe('PII Masking', () => {
-  it('masks Ghana phone numbers properly', () => {
-    expect(maskPhone('+233241234567')).toBe('+233 24 XXX 4567');
-    expect(maskPhone('0241234567')).toBe('024 XXX 4567');
-  });
-
-  it('masks payee names for recipient landing screen', () => {
+    it('masks payee names for recipient landing screen', () => {
     expect(maskName('Kojo Mensah')).toBe('K**** M*****');
     expect(maskName('Kwame')).toBe('K****');
   });
@@ -199,8 +193,8 @@ describe('Real PostgreSQL Integration & Double-Entry Ledger Property Tests', () 
     try {
       // 1. Setup test user and cheque
       await client.query(
-        `INSERT INTO users (id, phone_e164, name) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING;`,
-        [testUserId, `+23324${Math.floor(1000000 + Math.random() * 9000000)}`, 'Concurrency Test User']
+        `INSERT INTO users (id, email, name) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING;`,
+        [testUserId, `user-${crypto.randomUUID()}@example.com`, 'Concurrency Test User']
       );
 
       const publicCode = `CHQ-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
@@ -315,8 +309,8 @@ describe('Real PostgreSQL Integration & Double-Entry Ledger Property Tests', () 
     const testUserId = crypto.randomUUID();
     try {
       await client.query(
-        `INSERT INTO users (id, phone_e164, name) VALUES ($1, $2, 'Ledger User') ON CONFLICT DO NOTHING;`,
-        [testUserId, `+23324${Math.floor(1000000 + Math.random() * 9000000)}`]
+        `INSERT INTO users (id, email, name) VALUES ($1, $2, 'Ledger User') ON CONFLICT DO NOTHING;`,
+        [testUserId, `user-${crypto.randomUUID()}@example.com`]
       );
 
       await client.query(
@@ -397,8 +391,8 @@ describe('Real PostgreSQL Integration & Double-Entry Ledger Property Tests', () 
 
     try {
       await client.query(
-        `INSERT INTO users (id, phone_e164, name) VALUES ($1, $2, 'Payout User') ON CONFLICT DO NOTHING;`,
-        [testUserId, '+233249998877']
+        `INSERT INTO users (id, email, name) VALUES ($1, $2, 'Payout User') ON CONFLICT DO NOTHING;`,
+        [testUserId, 'payout-user@example.com']
       );
 
       await client.query(
@@ -448,40 +442,6 @@ describe('Real PostgreSQL Integration & Double-Entry Ledger Property Tests', () 
       await client.query('DELETE FROM destinations WHERE cheque_id = $1;', [testChequeId]).catch(() => {});
       await client.query('DELETE FROM cheques WHERE id = $1;', [testChequeId]).catch(() => {});
       await client.query('DELETE FROM users WHERE id = $1;', [testUserId]).catch(() => {});
-      client.release();
-    }
-  });
-
-  it('verifies unique webhook_events(provider, event_id)', async () => {
-    const client = await pool.connect();
-    const eventId = `evt-${Date.now()}`;
-
-    try {
-      await client.query(
-        `
-        INSERT INTO webhook_events (id, provider, event_id, payload)
-        VALUES (uuid_generate_v4(), 'SEEVCASH', $1, '{"status":"ok"}');
-        `,
-        [eventId]
-      );
-
-      // Duplicate must fail
-      let duplicateCaught = false;
-      try {
-        await client.query(
-          `
-          INSERT INTO webhook_events (id, provider, event_id, payload)
-          VALUES (uuid_generate_v4(), 'SEEVCASH', $1, '{"status":"ok2"}');
-          `,
-          [eventId]
-        );
-      } catch (err: any) {
-        duplicateCaught = err.code === '23505';
-      }
-
-      expect(duplicateCaught).toBe(true);
-    } finally {
-      await client.query('DELETE FROM webhook_events WHERE event_id = $1;', [eventId]).catch(() => {});
       client.release();
     }
   });

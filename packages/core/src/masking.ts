@@ -1,43 +1,4 @@
 /**
- * Masks a Ghana / E.164 phone number for UI display and logs.
- * Example: "+233241234567" -> "+233 24 XXX 4567"
- * Example: "0241234567" -> "024 XXX 4567"
- */
-export function maskPhone(phone: string): string {
-  if (!phone) return '';
-  const cleaned = phone.replace(/\s+/g, '');
-  
-  if (cleaned.startsWith('+233') && cleaned.length >= 12) {
-    const prefix = cleaned.slice(0, 4); // +233
-    const network = cleaned.slice(4, 6); // 24
-    const last4 = cleaned.slice(-4);
-    return `${prefix} ${network} XXX ${last4}`;
-  }
-  
-  if (cleaned.startsWith('233') && cleaned.length >= 11) {
-    const prefix = '+233';
-    const network = cleaned.slice(3, 5);
-    const last4 = cleaned.slice(-4);
-    return `${prefix} ${network} XXX ${last4}`;
-  }
-
-  if (cleaned.startsWith('0') && cleaned.length >= 10) {
-    const network = cleaned.slice(0, 3); // 024
-    const last4 = cleaned.slice(-4);
-    return `${network} XXX ${last4}`;
-  }
-
-  // Fallback mask if unexpected length
-  if (cleaned.length > 4) {
-    const visibleStart = cleaned.slice(0, Math.min(3, cleaned.length - 4));
-    const visibleEnd = cleaned.slice(-4);
-    return `${visibleStart}••••${visibleEnd}`;
-  }
-
-  return '••••';
-}
-
-/**
  * Masks payee or customer name for unauthenticated landing preview.
  * Example: "Kojo Mensah" -> "K**** M*****"
  * Example: "Kwame" -> "K****"

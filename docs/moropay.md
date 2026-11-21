@@ -196,23 +196,9 @@ export async function handleMorapayWebhook(rawBody: string, signature: string) {
 
 ---
 
-## 4. Comparison: MoraPay vs. SeevCash
+## 4. Implementation Architecture for Cheque
 
-| Feature | SeevCash | MoraPay | Winner / Assessment for Cheque |
-|---|---|---|---|
-| **Ecosystem & Asset** | Native Stellar Anchor (USDC on Stellar) | Multi-chain (Base & Ethereum USDC) | **SeevCash** fits Stellar natively; **MoraPay** requires Base treasury float. |
-| **Integration Protocol** | Stellar SEPs (SEP-6, 10, 12, 24, 38) | Modern REST API + TypeScript SDK | **MoraPay** is significantly simpler to build and debug than SEP-10/SEP-6. |
-| **Recipient Name Lookup** | Not supported programmatically | **Supported** (`/rails/resolve`) | **MoraPay** wins; solves payee name mismatch fraud check. |
-| **Bank Payout in Ghana** | "Coming soon" (unsupported in prod) | **Live & Supported** (GHIPSS network) | **MoraPay** wins; enables Phase 2 bank claims today. |
-| **MoMo Carriers (Ghana)** | MTN, Telecel, AirtelTigo | MTN, Telecel, AirtelTigo | **Tie** (both support all 3 networks). |
-| **Error Messages & DX** | Raw SEP errors / text responses | Consultant-grade errors (`safeMessage`, `why`, `howToFix`) | **MoraPay** is superior for UX error handling. |
-| **Custody / Float Model** | On-demand classic Stellar transfers | Pre-funded treasury account (Base USDC) | **SeevCash** has less capital locked; **MoraPay** requires treasury buffer. |
-
----
-
-## 5. Implementation Architecture for Cheque
-
-### 5.1 Settlement Adapter Interface
+### 4.1 Settlement Adapter Interface
 In accordance with `cheque.md` (Section 6.5), we implement `MoraPayAdapter`:
 
 ```typescript
@@ -300,7 +286,7 @@ export class MoraPayAdapter implements SettlementAdapter {
 }
 ```
 
-### 5.2 Treasury Float Management
+### 4.2 Treasury Float Management
 Because Cheque escrows USDC on Stellar while MoraPay pays out from Base USDC:
 1. **Float Pool:** We deposit a float (e.g. $1,000–$5,000 USDC) into our MoraPay treasury account on Base.
 2. **Reconciliation Worker:** When cheques settle on MoraPay, the corresponding Stellar USDC locked in the escrow contract is released to Cheque's operational treasury.
@@ -308,7 +294,7 @@ Because Cheque escrows USDC on Stellar while MoraPay pays out from Base USDC:
 
 ---
 
-## 6. Implementation Checklist & Next Steps
+## 5. Implementation Checklist & Next Steps
 
 - [ ] **Step 1: Sign up for MoraPay Merchant Account**
   - Obtain `pk_test_*` and `sk_test_*` API keys in the developer dashboard.
@@ -325,11 +311,11 @@ Because Cheque escrows USDC on Stellar while MoraPay pays out from Base USDC:
 - [ ] **Step 5: Fund Base Sepolia Treasury for Sandbox Testing**
   - Request testnet USDC on Base Sepolia (`84532`) to test end-to-end disbursement.
 - [ ] **Step 6: Fallback & Multi-Rail Routing**
-  - Configure MoraPay as primary payout provider, with SeevCash or direct Stellar USDC as fallback if carrier downtime (`payouts.network.carrier_down`) is reported.
+  - Configure MoraPay as primary payout provider, with direct Stellar USDC as fallback if carrier downtime (`payouts.network.carrier_down`) is reported.
 
 ---
 
-## 7. Useful Resources & Links
+## 6. Useful Resources & Links
 
 * **Official Docs:** [docs.morapay.io](https://docs.morapay.io)
 * **Quickstart:** [docs.morapay.io/getting-started/quickstart](https://docs.morapay.io/getting-started/quickstart)

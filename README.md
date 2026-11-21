@@ -34,19 +34,21 @@ Each cheque shows the amount in words and figures, the recipient, the sender, a 
 | `api/` | Fastify API: cheques, claims, auth, configuration and the outbox worker |
 | `packages/core` | Domain logic: state machine, money, corridors, ledger, outbox, migrations |
 | `packages/chain` | Stellar and Soroban client, signing, idempotent chain operations |
-| `packages/notify` | Phone normalisation, OTP over WhatsApp with SMS fallback, auth tokens |
+| `packages/notify` | Email delivery (Resend), OTP service, auth tokens |
 | `packages/shared` | Environment parsing and logging |
 | `contract/cheque` | Soroban escrow contract (Rust) |
 | `scripts/` | Testnet bootstrap, contract deploy and end-to-end flows |
 | `docs/` | Product spec, implementation spec, contract spec, design system, settlement guides |
 
 All project documentation is consolidated in the **`docs/`** directory:
+- **[docs/SETUP.md](docs/SETUP.md)** — Manual setup guide (environment, database, email, deployment)
+- **[docs/DEPLOY.md](docs/DEPLOY.md)** — Production deployment: frontend on Vercel, API + Postgres + Redis on Render
 - **[docs/cheque.md](docs/cheque.md)** — Digital Cheques for Ghana implementation spec
 - **[docs/SPEC.md](docs/SPEC.md)** — Core product specification
+- **[docs/PRD.md](docs/PRD.md)** — Product requirements (source document: `docs/sendcheq_PRD_v4.docx`)
 - **[docs/CONTRACT.md](docs/CONTRACT.md)** — Soroban smart contract specification
 - **[docs/DESIGN.md](docs/DESIGN.md)** — Visual design system and UI components
 - **[docs/moropay.md](docs/moropay.md)** — MoraPay offramp & onramp integration guide
-- **[docs/SEEVCASH_FINDINGS.md](docs/SEEVCASH_FINDINGS.md)** — SeevCash Stellar Anchor findings
 - **[docs/morapay/](docs/morapay/README.md)** — Mirrored MoraPay developer documentation
 
 ## Quick start
@@ -72,8 +74,6 @@ pnpm dev
 
 Open http://localhost:3100. The API runs its database migrations on start.
 
-To run the whole web app in the browser with fake data and no API, set `NEXT_PUBLIC_DEMO=1` in the frontend environment.
-
 ### Useful commands
 
 | Command | Does |
@@ -92,7 +92,7 @@ All settings live in `.env`. See `.env.example` for the full list and the commen
 
 - **Database and cache:** `DATABASE_URL`, `REDIS_URL`
 - **Stellar:** `STELLAR_NETWORK`, horizon and Soroban RPC URLs, USDC issuer, `CHEQUE_CONTRACT_ID`, and the testnet account keys
-- **Messaging:** WhatsApp Cloud API, SMS provider, and the email key for cheque notifications
+- **Email:** the Resend key for sender login OTP, payee claim verification and cheque notifications
 - **Pricing:** `ENABLED_CORRIDORS`, FX rates per corridor, and `FEE_BPS` (100 bps = 1%)
 - **Security:** `JWT_SECRET` and `OTP_SALT`. Change both before any shared deployment.
 
@@ -114,7 +114,7 @@ Never commit secret keys. The `.env` file is ignored by git.
 6. `pnpm build:contract && pnpm deploy:contract`
 7. Copy env if needed: `cp .env.local api/.env.local`
 8. `pnpm dev` (web: 3100, API: 3001; migrations run on API start)
-9. Optional demo mode: set `NEXT_PUBLIC_DEMO=1` in the frontend env.
+9. Sign in with an email or phone OTP and write your first cheque.
 
 Useful: `pnpm test`, `pnpm build`, `pnpm lint`. Without Redis, OTP and IP rate-limit state fall back to in-memory stores for development. Cheque state, the ledger, and the outbox still require Postgres.
 

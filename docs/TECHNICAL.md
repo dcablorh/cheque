@@ -203,7 +203,6 @@ Roles: the **admin** configures and upgrades; the **authority** (API backend) au
 - **Routes:** `/` (landing), `/app` (sender dashboard, new cheque, share), `/c/[token]` (claim).
 - **Data:** `lib/api.ts` wraps `fetch`, handles token refresh, and maps network failures to a readable message.
 - **Wallet:** `lib/wallet.tsx` connects a Stellar wallet through the Stellar Wallets Kit. The sender signs the create and cancel transactions, and the API submits them.
-- **Demo mode:** `NEXT_PUBLIC_DEMO=1` serves fake data from `lib/demo.ts` so the UI runs with no backend.
 - **Design:** see [DESIGN.md](../DESIGN.md). The cheque is always drawn in landscape by `ChequePaper`.
 
 ## 12. Configuration reference

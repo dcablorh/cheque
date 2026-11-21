@@ -3,10 +3,7 @@ import Redis from 'ioredis';
 import pg from 'pg';
 import { getPool, User } from '@cheque/core';
 import { logger } from '@cheque/shared';
-import { normalizePhone, PHONE_ERROR } from './phone.js';
-import { PhoneOtpService } from './otp.js';
-import { WhatsAppClient } from './whatsapp.js';
-import { SmsClient } from './sms.js';
+import { OtpService } from './otp.js';
 
 export interface AuthConfig {
   jwtSecret: string;
@@ -19,7 +16,7 @@ export interface AuthConfig {
 
 export interface JwtPayload {
   sub: string; // userId
-  phone: string;
+  contact: string; // email
   role: 'sender' | 'admin';
   iat: number;
   exp: number;
@@ -35,12 +32,11 @@ export interface AuthTokens {
 export class SenderAuthService {
   private config: Required<Omit<AuthConfig, 'redisUrl' | 'redisClient'>>;
   private redis?: Redis;
-  private otpService: PhoneOtpService;
-  private emailOtpService?: PhoneOtpService;
+  private emailOtpService?: OtpService;
   private inMemoryRefreshTokens = new Map<string, { userId: string; expiresAt: number }>();
   private pool: pg.Pool;
 
-  constructor(config: AuthConfig, otpService: PhoneOtpService, pool?: pg.Pool, emailOtpService?: PhoneOtpService) {
+  constructor(config: AuthConfig, pool?: pg.Pool, emailOtpService?: OtpService) {
     this.config = {
       jwtSecret: config.jwtSecret || 'cheque_default_jwt_secret_change_in_production',
       accessTokenExpirySeconds: config.accessTokenExpirySeconds ?? 900, // 15 mins
@@ -48,7 +44,6 @@ export class SenderAuthService {
       pinSalt: config.pinSalt || 'cheque_default_pin_salt',
     };
 
-    this.otpService = otpService;
     this.emailOtpService = emailOtpService;
     this.pool = pool ?? getPool();
 
@@ -69,70 +64,7 @@ export class SenderAuthService {
   }
 
   /**
-   * Step 1: Initiate Phone OTP Login.
-   */
-  async requestLoginOtp(params: {
-    phoneInput: string;
-    whatsAppClient?: WhatsAppClient;
-    smsClient?: SmsClient;
-    forceSms?: boolean;
-    ipAddress?: string;
-    deviceFp?: string;
-  }): Promise<{ phoneE164: string; channel: 'WHATSAPP' | 'SMS' }> {
-    const res = await this.otpService.sendOtp(params);
-    return { phoneE164: res.phoneE164, channel: res.channel };
-  }
-
-  /**
-   * Step 2: Verify Phone OTP and issue short-lived access JWT + rotating refresh token.
-   */
-  async verifyLoginOtp(params: {
-    phoneInput: string;
-    otp: string;
-    name?: string;
-  }): Promise<AuthTokens> {
-    const norm = normalizePhone(params.phoneInput);
-    if (!norm.isValid) {
-      throw new Error(`Invalid phone number: ${params.phoneInput}. ${PHONE_ERROR}`);
-    }
-
-    // 1. Verify OTP
-    await this.otpService.verifyOtp(norm.phoneE164, params.otp);
-
-    // 2. Fetch or create user in PostgreSQL
-    const client = await this.pool.connect();
-    let user: User;
-
-    try {
-      const userRes = await client.query(
-        `
-        INSERT INTO users (id, phone_e164, name, created_at, updated_at)
-        VALUES (uuid_generate_v4(), $1, $2, NOW(), NOW())
-        ON CONFLICT (phone_e164) DO UPDATE
-        SET updated_at = NOW(),
-            name = COALESCE(EXCLUDED.name, users.name)
-        RETURNING
-          id,
-          phone_e164 AS "phoneE164",
-          name,
-          pin_hash AS "pinHash",
-          created_at AS "createdAt",
-          updated_at AS "updatedAt";
-        `,
-        [norm.phoneE164, params.name ?? null]
-      );
-      user = userRes.rows[0] as User;
-    } finally {
-      client.release();
-    }
-
-    // 3. Issue short-lived access JWT + rotating refresh token
-    const tokens = await this.issueTokens(user);
-    return tokens;
-  }
-
-  /**
-   * Step 1 (email): initiate email OTP login.
+   * Step 1: initiate email OTP login.
    */
   async requestEmailLoginOtp(params: {
     email: string;
@@ -144,7 +76,7 @@ export class SenderAuthService {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(norm)) {
       throw new Error('Invalid email address.');
     }
-    const { otp } = await this.emailOtpService.createOtpSession({ phoneInput: norm, ipAddress: params.ipAddress, deviceFp: params.deviceFp });
+    const { otp } = await this.emailOtpService.createOtpSession({ contact: norm, ipAddress: params.ipAddress, deviceFp: params.deviceFp });
     return { email: norm, otp, channel: 'EMAIL' };
   }
 
@@ -169,7 +101,6 @@ export class SenderAuthService {
             name = COALESCE(EXCLUDED.name, users.name)
         RETURNING
           id,
-          phone_e164 AS "phoneE164",
           email,
           name,
           pin_hash AS "pinHash",
@@ -224,7 +155,7 @@ export class SenderAuthService {
         `
         SELECT
           id,
-          phone_e164 AS "phoneE164",
+          email,
           name,
           pin_hash AS "pinHash",
           created_at AS "createdAt",
@@ -290,7 +221,7 @@ export class SenderAuthService {
 
     const payload: JwtPayload = {
       sub: user.id,
-      phone: user.phoneE164 ?? user.email ?? '',
+      contact: user.email ?? '',
       role: 'sender',
       iat: nowSec,
       exp: expSec,

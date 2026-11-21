@@ -8,13 +8,12 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 -- 1. Users
 CREATE TABLE IF NOT EXISTS users (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  phone_e164 VARCHAR(20) UNIQUE,
   email VARCHAR(255) UNIQUE,
   name VARCHAR(255),
   pin_hash TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  CONSTRAINT users_contact_check CHECK (phone_e164 IS NOT NULL OR email IS NOT NULL)
+  CONSTRAINT users_contact_check CHECK (email IS NOT NULL)
 );
 
 -- 2. Cheques
@@ -170,19 +169,7 @@ CREATE TABLE IF NOT EXISTS events (
 CREATE INDEX IF NOT EXISTS idx_events_cheque_id ON events(cheque_id);
 CREATE INDEX IF NOT EXISTS idx_events_event_type ON events(event_type);
 
--- 10. Webhook Events (Unique constraint on (provider, event_id))
-CREATE TABLE IF NOT EXISTS webhook_events (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  provider VARCHAR(64) NOT NULL,
-  event_id VARCHAR(255) NOT NULL,
-  payload JSONB NOT NULL,
-  processed BOOLEAN NOT NULL DEFAULT FALSE,
-  processed_at TIMESTAMPTZ,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  CONSTRAINT uq_webhook_events_provider_event UNIQUE (provider, event_id)
-);
-
--- 11. Outbox
+-- 10. Outbox
 CREATE TABLE IF NOT EXISTS outbox (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   topic VARCHAR(128) NOT NULL,
@@ -256,10 +243,12 @@ ALTER TABLE cheques ADD CONSTRAINT cheques_corridor_check CHECK (corridor IN ('G
 
 ALTER TABLE users ADD COLUMN IF NOT EXISTS email VARCHAR(255);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email);
--- Existing DBs created phone_e164 as NOT NULL; email-only login needs it nullable.
-ALTER TABLE users ALTER COLUMN phone_e164 DROP NOT NULL;
+-- Email-only accounts: the legacy phone column is dropped and the contact check now requires an email.
 ALTER TABLE users DROP CONSTRAINT IF EXISTS users_contact_check;
-ALTER TABLE users ADD CONSTRAINT users_contact_check CHECK (phone_e164 IS NOT NULL OR email IS NOT NULL);
+ALTER TABLE users DROP COLUMN IF EXISTS phone_e164;
+-- webhook_events was only used by the removed WhatsApp/SMS webhook receivers
+DROP TABLE IF EXISTS webhook_events;
+ALTER TABLE users ADD CONSTRAINT users_contact_check CHECK (email IS NOT NULL);
 
 ALTER TABLE cheques ADD COLUMN IF NOT EXISTS currency VARCHAR(3) NOT NULL DEFAULT 'GHS';
 ALTER TABLE cheques DROP CONSTRAINT IF EXISTS cheques_currency_check;

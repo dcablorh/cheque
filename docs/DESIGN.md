@@ -12,7 +12,6 @@ Source of truth in code:
 | Buttons, fields, cards, labels | `frontend/src/app/globals.css` (`@layer components`) |
 | Shared components | `frontend/src/components/ui.tsx` |
 | Signature pad, scale-to-fit | `SignaturePad.tsx`, `ScaleToFit.tsx` |
-| Demo data (no API needed) | `frontend/src/lib/demo.ts` (`NEXT_PUBLIC_DEMO=1`) |
 
 ## 1. Principles
 

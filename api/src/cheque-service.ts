@@ -240,7 +240,7 @@ async function activateFunded(pool: Pool, cheque: Cheque, source: string): Promi
 }
 
 /** Reflects confirmed on-chain operations into the off-chain cheque state machine. */
-export function createChainAppliedHook(pool: Pool) {
+export function createChainAppliedHook(pool: Pool, network: 'TESTNET' | 'PUBLIC' = 'TESTNET') {
   return async function onApplied(item: OutboxItem, payload: ChainOperationPayload): Promise<void> {
     const chequeId = item.aggregateId;
     const cheque = await loadById(pool, chequeId);
@@ -278,12 +278,28 @@ export function createChainAppliedHook(pool: Pool) {
           [chequeId],
         );
         if (chain === 'stellar') {
+          const txRes = await pool.query(
+            `SELECT tx_hash FROM chain_txs WHERE cheque_id = $1 AND operation = 'redeem' AND status = 'CONFIRMED' ORDER BY created_at DESC LIMIT 1`,
+            [chequeId],
+          );
+          const redeemTx = txRes.rows[0]?.tx_hash as string | undefined;
           await moveIfStill(pool, chequeId, 'SETTLING', 'SETTLED', {
             ledgerTx: createSettlementConfirmedTransaction({
               chequeId,
               amountMinor: cheque.faceAmountMinor,
               currency: cheque.currency,
             }),
+            outboxItems: [
+              {
+                topic: 'email:cheque:status',
+                aggregateType: 'cheque',
+                payload: {
+                  event: 'SETTLED',
+                  chain: 'stellar',
+                  explorerUrl: redeemTx ? explorerTxUrl('stellar', redeemTx, network) : null,
+                },
+              },
+            ],
           });
           await pool.query(
             `UPDATE payouts SET status = 'CONFIRMED', updated_at = NOW()
@@ -304,6 +320,13 @@ export function createChainAppliedHook(pool: Pool) {
             amountMinor: cheque.faceAmountMinor,
             currency: cheque.currency,
           }),
+          outboxItems: [
+            {
+              topic: 'email:cheque:status',
+              aggregateType: 'cheque',
+              payload: { event: 'REFUNDED' },
+            },
+          ],
         });
         await pool.query(
           `UPDATE refunds SET status = 'CONFIRMED', updated_at = NOW()
@@ -319,56 +342,68 @@ export function createChainAppliedHook(pool: Pool) {
 }
 
 /** Periodic housekeeping: expire unclaimed cheques. */
+/**
+ * Expires every ACTIVE cheque past its expiry, queues the on-chain refund, and moves the
+ * cheque to REFUNDING. Returns how many cheques were swept. Used by the interval sweeper
+ * and by the cron-ticked /api/internal/tick endpoint on Vercel.
+ */
+export async function sweepExpiredCheques(pool: Pool): Promise<number> {
+  const due = await pool.query(
+    `SELECT id, expires_at FROM cheques WHERE state = 'ACTIVE' AND expires_at <= NOW() LIMIT 50`
+  );
+  let swept = 0;
+  for (const r of due.rows) {
+    try {
+      const moved = await moveIfStill(pool, r.id, 'ACTIVE', 'EXPIRED', {
+        context: { now: new Date(), expiresAt: new Date(r.expires_at) },
+      });
+      if (!moved) continue;
+      const cheque = await loadById(pool, r.id);
+      if (!cheque) continue;
+      await withTransaction(async (client) => {
+        await client.query(
+          `INSERT INTO refunds (cheque_id, method, status, amount_minor, reason)
+           VALUES ($1, 'USDC', 'PENDING', $2, 'cheque expired unclaimed')`,
+          [r.id, cheque.faceAmountMinor]
+        );
+        await transition(
+          {
+            chequeId: r.id,
+            fromState: 'EXPIRED',
+            toState: 'REFUNDING',
+            actor: 'SYSTEM',
+            expectedVersion: cheque.version,
+            ledgerTx: createRefundPendingTransaction({
+              chequeId: r.id,
+              amountMinor: cheque.faceAmountMinor,
+              currency: cheque.currency,
+            }),
+            outboxItems: [
+              {
+                topic: 'chain:contract:submit',
+                aggregateType: 'cheque',
+                payload: { operation: 'refund' },
+              },
+            ],
+          },
+          client
+        );
+      });
+      swept += 1;
+    } catch (e) {
+      logger.warn(`[sweeper] expire ${r.id}: ${(e as Error).message}`);
+    }
+  }
+  return swept;
+}
+
 export function startSweeper(pool: Pool, intervalMs = 30_000): () => void {
   let running = false;
   const tick = async () => {
     if (running) return;
     running = true;
     try {
-      const due = await pool.query(
-        `SELECT id, expires_at FROM cheques WHERE state = 'ACTIVE' AND expires_at <= NOW() LIMIT 50`
-      );
-      for (const r of due.rows) {
-        try {
-          const moved = await moveIfStill(pool, r.id, 'ACTIVE', 'EXPIRED', {
-            context: { now: new Date(), expiresAt: new Date(r.expires_at) },
-          });
-          if (!moved) continue;
-          const cheque = await loadById(pool, r.id);
-          if (!cheque) continue;
-          await withTransaction(async (client) => {
-            await client.query(
-              `INSERT INTO refunds (cheque_id, method, status, amount_minor, reason)
-               VALUES ($1, 'USDC', 'PENDING', $2, 'cheque expired unclaimed')`,
-              [r.id, cheque.faceAmountMinor]
-            );
-            await transition(
-              {
-                chequeId: r.id,
-                fromState: 'EXPIRED',
-                toState: 'REFUNDING',
-                actor: 'SYSTEM',
-                expectedVersion: cheque.version,
-                ledgerTx: createRefundPendingTransaction({
-                  chequeId: r.id,
-                  amountMinor: cheque.faceAmountMinor,
-                  currency: cheque.currency,
-                }),
-                outboxItems: [
-                  {
-                    topic: 'chain:contract:submit',
-                    aggregateType: 'cheque',
-                    payload: { operation: 'refund' },
-                  },
-                ],
-              },
-              client
-            );
-          });
-        } catch (e) {
-          logger.warn(`[sweeper] expire ${r.id}: ${(e as Error).message}`);
-        }
-      }
+      await sweepExpiredCheques(pool);
     } catch (e) {
       logger.warn(`[sweeper] tick failed: ${(e as Error).message}`);
     } finally {
@@ -417,7 +452,7 @@ export function registerChequeRoutes(deps: ChequeServiceDeps): void {
   app.get('/me', async (request, reply) => {
     const userId = requireSender(request, reply);
     if (!userId) return;
-    const res = await pool.query(`SELECT id, phone_e164 AS phone, name FROM users WHERE id = $1`, [userId]);
+    const res = await pool.query(`SELECT id, email, name FROM users WHERE id = $1`, [userId]);
     return res.rows[0] ?? reply.notFound('User not found');
   });
 
@@ -425,6 +460,7 @@ export function registerChequeRoutes(deps: ChequeServiceDeps): void {
     network: env.STELLAR_NETWORK,
     chainEnabled: deps.chainEnabled,
     walletFunding: deps.chainEnabled && !!deps.chainClient,
+    cctpEnabled: !!deps.cctpAdapter && !!deps.settlementPublicKey,
     feeBps: env.FEE_BPS,
     usdc: { code: env.USDC_ASSET_CODE, issuer: env.USDC_ISSUER_ADDRESS },
     horizonUrl: env.STELLAR_HORIZON_URL,
@@ -588,6 +624,7 @@ export function registerChequeRoutes(deps: ChequeServiceDeps): void {
           state: c.state,
           corridor: c.corridor,
           payeeName: c.payeeName,
+          payeeEmail: c.payeeContactType === 'EMAIL' ? (c.payeeContact ?? null) : null,
           ...amountView(c.faceAmountMinor, c.currency),
           feeMinor: c.feeMinor,
           note: c.note ?? null,
@@ -605,7 +642,7 @@ export function registerChequeRoutes(deps: ChequeServiceDeps): void {
     if (!userId) return;
     const c = await loadById(pool, request.params.id);
     if (!c || c.senderId !== userId) return reply.notFound('Cheque not found');
-    const [events, txs] = await Promise.all([
+    const [events, txs, payoutRes] = await Promise.all([
       pool.query(
         `SELECT event_type AS "type", from_state AS "from", to_state AS "to", actor, created_at AS "at"
            FROM events WHERE cheque_id = $1 ORDER BY created_at ASC`,
@@ -615,13 +652,35 @@ export function registerChequeRoutes(deps: ChequeServiceDeps): void {
         `SELECT operation, tx_hash AS "txHash", status, ledger FROM chain_txs WHERE cheque_id = $1 ORDER BY created_at ASC`,
         [c.id]
       ),
+      pool.query(
+        `SELECT p.dest_chain AS "destChain", p.status, p.fee_quote_minor AS "feeQuoteMinor",
+                p.net_amount_minor AS "netAmountMinor", p.cctp_burn_tx AS "burnTxHash",
+                p.cctp_forward_tx AS "forwardTxHash", p.last_error AS "lastError"
+           FROM payouts p WHERE p.cheque_id = $1 ORDER BY p.created_at DESC LIMIT 1`,
+        [c.id]
+      ),
     ]);
+    const po = payoutRes.rows[0] as
+      | {
+          destChain?: DestinationChain | null;
+          status?: string;
+          feeQuoteMinor?: string | null;
+          netAmountMinor?: string | null;
+          burnTxHash?: string | null;
+          forwardTxHash?: string | null;
+          lastError?: string | null;
+        }
+      | undefined;
+    const redeemTx = txs.rows.find((t: { operation: string; status: string }) => t.operation === 'redeem' && t.status === 'CONFIRMED')?.txHash as string | undefined;
+    const destChain: DestinationChain = po?.destChain ?? 'stellar';
+    const destTx = po?.forwardTxHash ?? (destChain === 'stellar' ? redeemTx : undefined);
     return {
       id: c.id,
       publicCode: c.publicCode,
       state: c.state,
       corridor: c.corridor,
       payeeName: c.payeeName,
+      payeeEmail: c.payeeContactType === 'EMAIL' ? (c.payeeContact ?? null) : null,
       ...amountView(c.faceAmountMinor, c.currency),
       feeMinor: c.feeMinor,
       usdcAmountStroops: c.usdcAmountStroops ?? null,
@@ -632,6 +691,18 @@ export function registerChequeRoutes(deps: ChequeServiceDeps): void {
       createdAt: c.createdAt,
       events: events.rows,
       chain: txs.rows,
+      payout: po
+        ? {
+            destChain,
+            status: po.status ?? null,
+            feeUsdc: po.feeQuoteMinor != null ? microUsdcToString(BigInt(po.feeQuoteMinor)) : null,
+            netUsdc: po.netAmountMinor != null ? microUsdcToString(BigInt(po.netAmountMinor)) : null,
+            burnTxHash: po.burnTxHash ?? null,
+            forwardTxHash: po.forwardTxHash ?? null,
+            explorerUrl: destTx ? explorerTxUrl(destChain, destTx, env.STELLAR_NETWORK) : null,
+            lastError: po.status === 'FAILED' ? po.lastError ?? null : null,
+          }
+        : null,
     };
   });
 
@@ -640,6 +711,22 @@ export function registerChequeRoutes(deps: ChequeServiceDeps): void {
     if (!userId) return;
     const c = await loadById(pool, request.params.id);
     if (!c || c.senderId !== userId) return reply.notFound('Cheque not found');
+    // Unfunded wallet cheques can be discarded without an on-chain transaction.
+    if (c.state === 'PENDING_FUNDING' && c.funderAddress) {
+      try {
+        await transition({
+          chequeId: c.id,
+          fromState: 'PENDING_FUNDING',
+          toState: 'CANCELLED',
+          actor: 'SENDER',
+          expectedVersion: c.version,
+          auditPayload: { source: 'wallet:unfunded_cancel' },
+        });
+      } catch (e) {
+        return reply.conflict((e as Error).message);
+      }
+      return { id: c.id, state: 'CANCELLED' };
+    }
     if (c.state !== 'ACTIVE') {
       return reply.conflict(`Only an active cheque can be cancelled (currently ${c.state}).`);
     }
@@ -770,7 +857,7 @@ export function registerChequeRoutes(deps: ChequeServiceDeps): void {
       return { success: true, skipped: true };
     }
     try {
-      const { otp } = await deps.emailOtpService.createOtpSession({ phoneInput: email });
+      const { otp } = await deps.emailOtpService.createOtpSession({ contact: email });
       await deps.emailClient.sendEmail({
         to: email,
         subject: 'Your sencheq verification code',
@@ -1040,6 +1127,8 @@ export function registerChequeRoutes(deps: ChequeServiceDeps): void {
       netUsdc: netMinor != null ? microUsdcToString(netMinor) : null,
       payoutStatus: po?.status ?? null,
       payoutError: po?.status === 'FAILED' ? po.last_error ?? 'Payout failed; funds are in the settlement account for manual recovery.' : null,
+      cctpEnabled: !!deps.cctpAdapter && !!deps.settlementPublicKey,
+      requiresEmailOtp: !!deps.emailOtpService && cheque.payeeContactType === 'EMAIL' && !!cheque.payeeContact,
       network: env.STELLAR_NETWORK,
     };
   });

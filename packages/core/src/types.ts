@@ -42,7 +42,6 @@ export type LedgerAccount =
 
 export interface User {
   id: string;
-  phoneE164?: string;
   email?: string;
   name?: string;
   pinHash?: string;
