@@ -59,7 +59,7 @@ async function request<T>(path: string, init: RequestInit = {}, token?: string):
 }
 
 export const publicApi = {
-  get: <T,>(path: string) => request<T>(path),
+  get: <T,>(path: string, headers?: Record<string, string>) => request<T>(path, { headers }),
   post: <T,>(path: string, data?: unknown) => request<T>(path, { method: 'POST', body: JSON.stringify(data ?? {}) }),
 };
 

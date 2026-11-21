@@ -123,6 +123,8 @@ function publicView(c: Cheque, senderName?: string | null) {
     id: c.id,
     publicCode: c.publicCode,
     state: c.state,
+    // Masked by default; /claim/:token/status reveals the full name only to a
+    // verified (OTP-checked) claim session.
     payee: maskName(c.payeeName),
     senderFirstName: senderName ? senderName.split(/\s+/)[0] : null,
     corridor: c.corridor,
@@ -1079,10 +1081,26 @@ export function registerChequeRoutes(deps: ChequeServiceDeps): void {
     }
   );
 
-  app.get<{ Params: { token: string } }>('/claim/:token/status', async (request, reply) => {
+  app.get<{ Params: { token: string }; Querystring: { sessionToken?: string } }>(
+    '/claim/:token/status',
+    async (request, reply) => {
     const found = await loadByToken(pool, request.params.token);
     if (!found) return reply.notFound('This cheque link is not valid.');
     const { cheque } = found;
+    // A verified claim session (email OTP) unlocks the full payee name.
+    const presentedSession =
+      (request.headers['x-claim-session'] as string | undefined) ??
+      (request.query as { sessionToken?: string }).sessionToken;
+    let payeeFullName: string | null = null;
+    if (presentedSession) {
+      const session = await pool.query(
+        `SELECT 1 FROM claim_sessions
+          WHERE cheque_id = $1 AND session_token = $2
+            AND verified_at IS NOT NULL AND expires_at > NOW()`,
+        [cheque.id, hashSessionToken(presentedSession)],
+      );
+      if (session.rowCount) payeeFullName = cheque.payeeName;
+    }
     const [dest, tx, payout] = await Promise.all([
       pool.query(
         `SELECT account_ref, chain FROM destinations WHERE cheque_id = $1 ORDER BY created_at DESC LIMIT 1`,
@@ -1129,7 +1147,9 @@ export function registerChequeRoutes(deps: ChequeServiceDeps): void {
       payoutError: po?.status === 'FAILED' ? po.last_error ?? 'Payout failed; funds are in the settlement account for manual recovery.' : null,
       cctpEnabled: !!deps.cctpAdapter && !!deps.settlementPublicKey,
       requiresEmailOtp: !!deps.emailOtpService && cheque.payeeContactType === 'EMAIL' && !!cheque.payeeContact,
+      payeeFullName,
       network: env.STELLAR_NETWORK,
     };
-  });
+    },
+  );
 }
