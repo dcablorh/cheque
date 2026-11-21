@@ -52,8 +52,13 @@ export async function buildApp() {
       reply.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
     }
   });
+  // Browsers never send a trailing slash in the Origin header, so normalize
+  // the configured URL (e.g. "https://app.example.com/") before matching.
+  const corsOrigins = [env.NEXT_PUBLIC_APP_URL, 'http://localhost:3100'].map(
+    (o) => (o.endsWith('/') ? o.slice(0, -1) : o),
+  );
   await app.register(cors, {
-    origin: [env.NEXT_PUBLIC_APP_URL, 'http://localhost:3100'],
+    origin: corsOrigins,
     credentials: true,
   });
 
