@@ -22,6 +22,7 @@ interface PublicCheque {
   corridor?: CountryCode;
   state: string;
   payee: string;
+  payeeFullName?: string | null;
   senderFirstName: string | null;
   amount: string;
   currency: string;
@@ -99,13 +100,17 @@ export default function ClaimPage() {
 
   const refresh = useCallback(async () => {
     try {
-      setCheque(await publicApi.get<ClaimStatus>(`/claim/${token}/status`));
+      const stored = typeof window !== 'undefined' ? window.sessionStorage.getItem(`claim-session-${token}`) : null;
+      const t = sessionToken || stored || '';
+      setCheque(
+        await publicApi.get<ClaimStatus>(`/claim/${token}/status`, t ? { 'x-claim-session': t } : undefined),
+      );
       setLoadError('');
     } catch (e) {
       if (e instanceof ApiError && e.status === 404) setMissing(true);
       else setLoadError(e instanceof ApiError ? e.message : 'Could not load this cheque.');
     }
-  }, [token]);
+  }, [token, sessionToken]);
 
   const addressTouched = address.trim().length > 0;
   const addressValid = isDestinationAddress(chain, address);
@@ -207,7 +212,7 @@ export default function ClaimPage() {
   }
 
   const paper = (
-    <ChequePaper currency={cheque.currency} amountValue={cheque.amount} amount={fmtMoney(cheque.amount, cheque.currency)} payee={cheque.payee} from={cheque.senderFirstName} signature={cheque.signature} date={dateLabel(cheque)} note={cheque.note} code={cheque.publicCode} />
+    <ChequePaper currency={cheque.currency} amountValue={cheque.amount} amount={fmtMoney(cheque.amount, cheque.currency)} payee={cheque.payeeFullName ?? cheque.payee} from={cheque.senderFirstName} signature={cheque.signature} date={dateLabel(cheque)} note={cheque.note} code={cheque.publicCode} />
   );
 
   const receiptHref =
@@ -221,7 +226,7 @@ export default function ClaimPage() {
   if (cheque.state === 'SETTLED') {
     return (
       <Shell>
-        <ChequePaper currency={cheque.currency} amountValue={cheque.amount} amount={fmtMoney(cheque.amount, cheque.currency)} payee={cheque.payee} from={cheque.senderFirstName} signature={cheque.signature} date={dateLabel(cheque)} note={cheque.note} code={cheque.publicCode} stamp="Paid" />
+        <ChequePaper currency={cheque.currency} amountValue={cheque.amount} amount={fmtMoney(cheque.amount, cheque.currency)} payee={cheque.payeeFullName ?? cheque.payee} from={cheque.senderFirstName} signature={cheque.signature} date={dateLabel(cheque)} note={cheque.note} code={cheque.publicCode} stamp="Paid" />
         <div className="card mt-5 animate-rise space-y-3 p-7 text-center" role="status">
           <CheckCircle2 className="mx-auto h-10 w-10 text-brand-600" />
           <h1 className="display">{cheque.netUsdc ? `${cheque.netUsdc} USDC delivered` : `${fmtMoney(cheque.amount, cheque.currency)} delivered`}</h1>
@@ -333,6 +338,8 @@ export default function ClaimPage() {
             return run(async () => {
               const res = await publicApi.post<{ sessionToken: string }>(`/claim/${token}/otp/verify`, { otp: otp.trim() });
               setSessionToken(res.sessionToken);
+              try { window.sessionStorage.setItem(`claim-session-${token}`, res.sessionToken); } catch {}
+              await refresh();
               setStep('destination');
             });
           }} className="card space-y-5 p-6">
