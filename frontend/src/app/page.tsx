@@ -161,7 +161,6 @@ export default function Home() {
       {/* hero */}
       <header className="relative overflow-hidden bg-night text-paper">
         <div className="relative z-10 mx-auto max-w-[1200px] px-5 pb-[34vw] pt-16 text-center sm:pt-24 md:pb-72">
-          <p className="eyebrow animate-rise text-brand-500">Ghana · Nigeria · United States</p>
           <h1 className="display mt-6 text-[clamp(56px,12vw,170px)] !leading-[.9] tracking-[-.02em]">
             <span className="block animate-rise [animation-delay:60ms]">If you can send a message,</span>
             <span className="block animate-rise text-brand-500 [animation-delay:160ms]">you can send money.</span>
@@ -399,7 +398,7 @@ export default function Home() {
           <div>
             <Logo tone="light" />
             <p className="mt-4 max-w-xs text-sm text-paper/70">
-              Cross-border digital cheques between Ghana, Nigeria and the United States, settled on Stellar.
+              Cross-border digital cheques, settled on Stellar. Send a link, get paid.
             </p>
           </div>
           <div>
@@ -412,7 +411,7 @@ export default function Home() {
         <div className="border-t border-sage/40">
           <div className="mx-auto flex max-w-[1200px] flex-wrap items-center justify-between gap-3 px-5 py-5">
             <span className="eyebrow !text-[11px] text-moss">Settled on Stellar</span>
-            <span className="eyebrow !text-[11px] text-moss">Ghana · Nigeria · United States</span>
+            <span className="eyebrow !text-[11px] text-moss">sencheq</span>
           </div>
         </div>
       </footer>
