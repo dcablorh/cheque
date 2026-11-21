@@ -47,7 +47,7 @@ import type { ChainOperationPayload } from './chain-handler.js';
 /** Contract defaults (docs/CONTRACT.md): cheques >= 50 USDC wait 15 min before redeem. */
 const DELAY_THRESHOLD_STROOPS = 500_000_000n;
 const DELAY_SECS = 900;
-const MIN_STROOPS = 10_000_000n; // contract min_amount: 1 USDC
+const MIN_STROOPS = 1_000n; // contract min_amount floor: 0.0001 USDC (per-currency fiat minimums are enforced above this)
 const LOCK_SECS = 600;
 
 const CHEQUE_COLS = `
@@ -489,7 +489,7 @@ export function registerChequeRoutes(deps: ChequeServiceDeps): void {
     minAmountGhs: minorToDecimalString(
       convertStroopsToFiatMinor(MIN_STROOPS, env.FX_GHS_PER_USDC, 'ROUND_UP')
     ),
-    maxAmountGhs: '2000.00',
+    maxAmountGhs: '1000000.00',
     momoPayouts: false,
   }));
 

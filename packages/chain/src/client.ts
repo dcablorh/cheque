@@ -355,6 +355,15 @@ export class ChequeContractClient {
     });
   }
 
+  /** Update the on-chain config (admin only). Fetch current config first and override what changes. */
+  async setConfig(adminSigner: KeySigner, config: OnChainConfig) {
+    return this.invokeContract({
+      functionName: 'set_config',
+      args: [this.encodeConfig(config)],
+      signer: adminSigner,
+    });
+  }
+
   async createCheque(
     funderSigner: KeySigner,
     params: {

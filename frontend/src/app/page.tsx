@@ -45,7 +45,7 @@ const COUNTRIES = [
     name: 'Ghana',
     currency: 'GHS',
     symbol: '₵',
-    range: '₵5 – ₵2,000',
+    range: '₵1.5 – ₵1,000,000',
     local: 'Mobile Money',
     note: 'MTN, Telecel and AT',
   },
@@ -54,7 +54,7 @@ const COUNTRIES = [
     name: 'Nigeria',
     currency: 'NGN',
     symbol: '₦',
-    range: '₦2,000 – ₦1,000,000',
+    range: '₦1.5 – ₦1,000,000',
     local: 'Bank transfer',
     note: 'Any Nigerian bank account',
   },
@@ -63,7 +63,7 @@ const COUNTRIES = [
     name: 'United States',
     currency: 'USD',
     symbol: '$',
-    range: '$5 – $2,000',
+    range: '$1.5 – $1,000,000',
     local: 'Bank transfer (ACH)',
     note: 'Routing and account number',
   },
@@ -151,12 +151,6 @@ export default function Home() {
         <div className="mx-auto flex h-16 max-w-[1200px] items-center justify-between gap-4 px-5">
           <Logo tone="light" />
           <div className="flex items-center gap-3">
-            <Link
-              href="/app"
-              className="btn hidden !px-5 !py-2.5 border border-paper text-paper hover:bg-paper/10 focus-visible:ring-offset-night sm:inline-flex"
-            >
-              Log in
-            </Link>
             <Link href="/app" className="btn-primary !px-4 !py-2.5 focus-visible:ring-offset-night sm:!px-5">
               Write a cheque
             </Link>
@@ -412,7 +406,6 @@ export default function Home() {
             <p className="eyebrow text-moss">Get started</p>
             <ul className="mt-4 space-y-2 text-sm">
               <li><Link href="/app" className="text-paper/80 transition hover:text-brand-500">Write a cheque</Link></li>
-              <li><Link href="/app" className="text-paper/80 transition hover:text-brand-500">Log in</Link></li>
             </ul>
           </div>
         </div>

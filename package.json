@@ -12,6 +12,7 @@
     "bootstrap:testnet": "tsx scripts/bootstrap-testnet.ts",
     "build:contract": "cargo build --release --target wasm32v1-none --manifest-path contract/Cargo.toml -p cheque-contract",
     "deploy:contract": "tsx scripts/deploy-contract.ts",
+    "update:contract-config": "tsx scripts/update-contract-config.ts",
     "e2e:contract": "tsx scripts/e2e-contract-flow.ts",
     "e2e:wallet": "tsx scripts/e2e-wallet-flow.ts",
     "lint": "pnpm -r run lint",

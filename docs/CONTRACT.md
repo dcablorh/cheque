@@ -36,8 +36,8 @@ Shared contract configuration and privileged roles:
 *   `Guardian`: `Address` — Multisig security key (can veto delayed high-value payouts).
 *   `Token`: `Address` — Canonical Stellar Asset Contract (SAC) address for USDC.
 *   `Config`:
-    *   `min_amount`: `i128` (default: 1 USDC = 10,000,000 stroops)
-    *   `max_amount`: `i128` (default: 2,000 USDC = 20,000,000,000 stroops)
+    *   `min_amount`: `i128` (default: 0.0001 USDC = 1,000 stroops — sanity floor; per-currency fiat minimums are enforced app-side)
+    *   `max_amount`: `i128` (default: 1,000,000 USDC = 10,000,000,000,000 stroops)
     *   `max_lock_secs`: `u64` (default: 3600s / 1 hour)
     *   `delay_threshold`: `i128` (default: 50 USDC = 500,000,000 stroops)
     *   `delay_secs`: `u64` (default: 900s / 15 minutes)
