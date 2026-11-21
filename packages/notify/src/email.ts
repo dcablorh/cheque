@@ -1,41 +1,45 @@
 export interface EmailClientConfig {
   apiKey?: string;
   from?: string;
+  fromName?: string;
 }
 
 export class EmailClient {
   private apiKey: string;
   private from: string;
+  private fromName: string;
 
   constructor(config: EmailClientConfig = {}) {
     this.apiKey = config.apiKey || process.env.EMAIL_API_KEY || '';
-    this.from = config.from || 'sencheq <onboarding@resend.dev>';
+    this.from = config.from || process.env.EMAIL_FROM || 'noreply@sencheq.com';
+    this.fromName = config.fromName || process.env.EMAIL_FROM_NAME || 'Sencheq';
   }
 
   async sendEmail(params: { to: string; subject: string; text: string; html?: string }): Promise<{ id?: string }> {
     if (!this.apiKey) {
       throw new Error('EMAIL_API_KEY is not configured; email not sent.');
     }
-    const res = await fetch('https://api.resend.com/emails', {
+    const res = await fetch('https://api.brevo.com/v3/smtp/email', {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${this.apiKey}`,
+        'api-key': this.apiKey,
         'Content-Type': 'application/json',
+        accept: 'application/json',
       },
       body: JSON.stringify({
-        from: this.from,
-        to: [params.to],
+        sender: { email: this.from, name: this.fromName },
+        to: [{ email: params.to }],
         subject: params.subject,
-        text: params.text,
-        html: params.html,
+        textContent: params.text,
+        htmlContent: params.html,
       }),
     });
     if (!res.ok) {
       const body = await res.text();
-      throw new Error(`Resend email failed: ${res.status} ${body}`);
+      throw new Error(`Brevo email failed: ${res.status} ${body}`);
     }
-    const data = (await res.json()) as { id?: string };
-    return { id: data.id };
+    const data = (await res.json()) as { messageId?: string; id?: string };
+    return { id: data.messageId ?? data.id };
   }
 }
 
