@@ -14,7 +14,7 @@ import {
   type DestinationChain,
 } from '@/lib/api';
 import { COUNTRIES, type CountryCode } from '@/lib/countries';
-import { ChequePaper, ErrorNote, CorridorMap, Logo, Spinner } from '@/components/ui';
+import { ChequePaper, CorridorMap, DotsLoader, ErrorNote, FailureNote, Logo, ProcessingRail, Skeleton, Spinner } from '@/components/ui';
 import { useWallet, shortAddress } from '@/lib/wallet';
 
 interface PublicCheque {
@@ -205,7 +205,15 @@ export default function ClaimPage() {
             <button className="btn-primary" onClick={() => { setLoadError(''); refresh(); }}>Try again</button>
           </div>
         ) : (
-          <div className="flex justify-center py-24"><Spinner className="h-6 w-6 text-brand-500" /></div>
+          <div className="space-y-5" aria-busy="true" aria-label="Loading cheque">
+            <Skeleton className="h-[268px] w-full rounded-[10px]" />
+            <div className="card space-y-4 p-7">
+              <Skeleton className="h-8 w-2/3 rounded-[6px]" />
+              <Skeleton className="h-4 w-1/2 rounded-[6px]" />
+              <Skeleton className="h-12 w-full rounded-[10px]" />
+            </div>
+            <div className="flex justify-center"><DotsLoader /></div>
+          </div>
         )}
       </Shell>
     );
@@ -227,14 +235,16 @@ export default function ClaimPage() {
     return (
       <Shell>
         <ChequePaper currency={cheque.currency} amountValue={cheque.amount} amount={fmtMoney(cheque.amount, cheque.currency)} payee={cheque.payeeFullName ?? cheque.payee} from={cheque.senderFirstName} signature={cheque.signature} date={dateLabel(cheque)} note={cheque.note} code={cheque.publicCode} stamp="Paid" />
-        <div className="card mt-5 animate-rise space-y-3 p-7 text-center" role="status">
-          <CheckCircle2 className="mx-auto h-10 w-10 text-brand-600" />
+        <div className="card mt-5 animate-rise space-y-4 p-7 text-center" role="status">
+          <span className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-brand-500 text-night" aria-hidden>
+            <CheckCircle2 className="h-7 w-7" strokeWidth={2.4} />
+          </span>
           <h1 className="display">{cheque.netUsdc ? `${cheque.netUsdc} USDC delivered` : `${fmtMoney(cheque.amount, cheque.currency)} delivered`}</h1>
           <p className="break-all text-sm text-ink-soft">
             Sent to {chainLabel(cheque.destinationChain)} <span className="font-mono text-xs">{cheque.destination}</span>
           </p>
           {cheque.feeUsdc && cheque.destinationChain && cheque.destinationChain !== 'stellar' && (
-            <p className="text-xs text-ink-mute">Forwarding fee from Stellar: {cheque.feeUsdc} USDC</p>
+            <p className="text-xs text-ink-mute">Forwarding fee: {cheque.feeUsdc} USDC</p>
           )}
           {receiptHref && (
             <a className="inline-flex items-center gap-1.5 text-sm font-semibold text-brand-700 underline underline-offset-4"
@@ -254,33 +264,42 @@ export default function ClaimPage() {
     return (
       <Shell>
         {paper}
-        <div className="card mt-5 flex items-center gap-4 p-6">
-          {failed ? <XCircle className="h-6 w-6 shrink-0 text-cedi" /> : <Spinner className="h-6 w-6 shrink-0 text-brand-500" />}
-          <div>
-            {failed ? (
-              <>
-                <p className="font-semibold">Payout needs a manual recovery</p>
-                <p className="text-sm text-ink-soft">
-                  {cheque.payoutError ?? 'The USDC is still held in the Stellar settlement account. No automatic refund was issued.'}
-                </p>
-              </>
-            ) : dest === 'stellar' ? (
-              <>
-                <p className="font-semibold">Sending your money on Stellar…</p>
-                <p className="text-sm text-ink-soft">Redeeming the Soroban escrow. This usually takes under a minute. You can keep this page open.</p>
-              </>
-            ) : (
-              <>
-                <p className="font-semibold">Bridging from Stellar to {chainLabel(dest)}…</p>
-                <p className="text-sm text-ink-soft">
-                  USDC is leaving the Soroban escrow on Stellar, then Circle CCTP will mint it on {chainLabel(dest)}. This usually takes under a minute.
-                </p>
-                {cheque.burnTxHash && (
-                  <p className="mt-1 text-xs text-ink-mute">Stellar burn submitted. Waiting for the destination mint…</p>
-                )}
-              </>
-            )}
-          </div>
+        <div className="card mt-5 space-y-4 p-6" aria-busy={!failed}>
+          {failed ? (
+            <FailureNote
+              title="Payout needs a manual recovery"
+              body={
+                <>
+                  {cheque.payoutError ?? 'The USDC is still held in the settlement account. No automatic refund was issued.'}
+                  <br />
+                  Keep this page open — support can complete the payout from here.
+                </>
+              }
+            />
+          ) : (
+            <>
+              <div className="flex items-center gap-3">
+                <DotsLoader className="shrink-0" />
+                <div>
+                  <p className="font-semibold">
+                    {dest === 'stellar' ? 'Sending your money…' : `Bridging to ${chainLabel(dest)}…`}
+                  </p>
+                  <p className="text-sm text-ink-soft">
+                    {dest === 'stellar'
+                      ? 'Redeeming the escrow. This usually takes under a minute. You can keep this page open.'
+                      : 'The escrow is redeeming, then the bridge mints USDC on the destination chain. Usually under a minute.'}
+                  </p>
+                </div>
+              </div>
+              <ProcessingRail
+                steps={dest === 'stellar' ? ['Escrow redeemed', 'Delivered'] : ['Escrow redeemed', 'Mint on ' + chainLabel(dest), 'Delivered']}
+                active={dest !== 'stellar' && cheque.burnTxHash ? 1 : 0}
+              />
+              {dest !== 'stellar' && cheque.burnTxHash && (
+                <p className="text-xs text-ink-mute">Burn submitted on the source chain. Waiting for the destination mint…</p>
+              )}
+            </>
+          )}
         </div>
       </Shell>
     );
@@ -483,9 +502,9 @@ function Shell({ children }: { children: React.ReactNode }) {
 function Dead({ icon: Icon, title, body }: { icon: React.ComponentType<{ className?: string }>; title: string; body: string }) {
   return (
     <div className="card animate-rise space-y-3 p-10 text-center">
-      <span className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-night/5"><Icon className="h-7 w-7 text-ink-mute" /></span>
+      <span className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-night text-brand-500"><Icon className="h-7 w-7" /></span>
       <h1 className="display">{title}</h1>
-      <p className="text-sm text-ink-soft">{body}</p>
+      <p className="mx-auto max-w-sm text-sm text-ink-soft">{body}</p>
     </div>
   );
 }
