@@ -9,9 +9,22 @@ const display = Anton({ subsets: ['latin'], weight: '400', variable: '--font-dis
 const mono = DM_Mono({ subsets: ['latin'], weight: ['400', '500'], variable: '--font-mono' });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3100'),
   title: 'sencheq — if you can send a message, you can send money',
   description:
     'Write a cheque, share the link, and whoever holds it can claim. If you can send a message, you can send money.',
+  openGraph: {
+    title: 'sencheq — if you can send a message, you can send money',
+    description: 'Write a cheque, share the link, and whoever holds it can claim.',
+    images: [{ url: '/brand/og.jpg', width: 1200, height: 630, alt: 'sencheq — if you can send a message, you can send money' }],
+    type: 'website',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'sencheq — if you can send a message, you can send money',
+    description: 'Write a cheque, share the link, and whoever holds it can claim.',
+    images: ['/brand/og.jpg'],
+  },
 };
 
 export const viewport: Viewport = { themeColor: '#122315', width: 'device-width', initialScale: 1 };
