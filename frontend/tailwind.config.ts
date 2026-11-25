@@ -36,14 +36,20 @@ const config: Config = {
         cheque: '0 12px 40px rgba(10,7,27,.28)',
         chip: '0 8px 24px rgba(10,7,27,.18)',
       },
+      transitionTimingFunction: {
+        // The house curve for UI motion: fast out, soft landing.
+        out: 'cubic-bezier(.2,.8,.2,1)',
+      },
       keyframes: {
         rise: { '0%': { opacity: '0', transform: 'translateY(14px)' }, '100%': { opacity: '1', transform: 'none' } },
+        fade: { '0%': { opacity: '0' }, '100%': { opacity: '1' } },
         float: { '0%,100%': { transform: 'translateY(0) rotate(-3deg)' }, '50%': { transform: 'translateY(-8px) rotate(-2deg)' } },
         bob: { '0%,100%': { transform: 'translateY(0) rotate(var(--r,0deg))' }, '50%': { transform: 'translateY(-8px) rotate(calc(var(--r,0deg) + 4deg))' } },
         stamp: { '0%': { opacity: '0', transform: 'scale(1.6) rotate(-14deg)' }, '100%': { opacity: '1', transform: 'scale(1) rotate(-8deg)' } },
       },
       animation: {
         rise: 'rise .6s cubic-bezier(.2,.8,.2,1) both',
+        fade: 'fade .18s cubic-bezier(.2,.8,.2,1) both',
         float: 'float 7s ease-in-out infinite',
         bob: 'bob 6s ease-in-out infinite',
         stamp: 'stamp .5s cubic-bezier(.2,.8,.2,1) both',

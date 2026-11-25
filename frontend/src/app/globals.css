@@ -17,10 +17,18 @@ body {
 }
 
 @layer components {
+  /* Press feedback is separate from colour changes: 160ms on transform reads as
+     an instant response, while colour can afford a slightly softer 200ms. */
   .btn {
-    @apply inline-flex min-h-[44px] items-center justify-center gap-2 whitespace-nowrap rounded-[10px] px-5 py-3 text-[13px] font-medium uppercase tracking-[.16em] transition sm:px-7 sm:py-3.5
+    @apply inline-flex min-h-[44px] items-center justify-center gap-2 whitespace-nowrap rounded-full px-6 py-3 text-[15px] font-semibold sm:px-7 sm:py-3.5
       active:scale-[.98] disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none
       focus-visible:ring-2 focus-visible:ring-night focus-visible:ring-offset-2 focus-visible:ring-offset-paper;
+    transition:
+      transform 160ms cubic-bezier(0.2, 0.8, 0.2, 1),
+      background-color 200ms ease,
+      border-color 200ms ease,
+      color 200ms ease,
+      opacity 200ms ease;
   }
   .btn-primary {
     @apply btn bg-brand-500 text-night hover:bg-brand-600;
@@ -41,22 +49,40 @@ body {
   .label {
     @apply mb-2 block text-[12px] font-medium uppercase tracking-[.18em] text-sage;
   }
+  /* Press feedback for pressable cards and chips (rails, expiry chips) that are
+     not buttons. Kept to transform + colour so nothing reflows. */
+  .press {
+    @apply active:scale-[.99];
+    transition:
+      transform 160ms cubic-bezier(0.2, 0.8, 0.2, 1),
+      background-color 200ms ease,
+      border-color 200ms ease,
+      color 200ms ease;
+  }
   .card {
-    @apply rounded-[20px] border border-sage bg-[#faf7f1] shadow-card;
+    @apply rounded-[24px] border border-sage bg-[#faf7f1] shadow-card;
   }
   .eyebrow {
     @apply text-[12px] font-medium uppercase tracking-[.22em];
   }
+  /* Display type: heavy sentence-case headlines, tight leading — the Wise-style look. */
   .display {
-    @apply font-serif font-bold uppercase leading-[.85] tracking-[-.01em];
+    @apply font-serif font-black leading-[.95] tracking-[-.025em];
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .animate-rise,
+  .animate-fade,
   .animate-float,
   .animate-stamp,
   .animate-bob {
     animation: none !important;
+  }
+
+  /* Keep state changes legible without movement. */
+  .btn:active,
+  .press:active {
+    transform: none !important;
   }
 }
