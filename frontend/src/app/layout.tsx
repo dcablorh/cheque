@@ -12,6 +12,8 @@ const mono = DM_Mono({ subsets: ['latin'], weight: ['400', '500'], variable: '--
 const APP_URL = (process.env.NEXT_PUBLIC_APP_URL || 'https://sencheq.com').replace(/\/+$/, '');
 const OG_VIDEO = `${APP_URL}/brand/cheq.mp4`;
 const OG_IMAGE = `${APP_URL}/brand/cheq-og.jpg`;
+// Poster frame from the brand video; crawlers that don't render og:video fall back to it.
+const OG_POSTER = `${APP_URL}/brand/cheq-poster.jpg`;
 
 const TITLE = 'sencheq — if you can send a message, you can send money';
 const DESCRIPTION =
@@ -28,7 +30,10 @@ export const metadata: Metadata = {
     title: TITLE,
     description: DESCRIPTION,
     url: APP_URL,
-    images: [{ url: OG_IMAGE, width: 1200, height: 630, alt: 'Two people holding a sencheq cheque between the flags of Ghana and Nigeria' }],
+    images: [
+      { url: OG_IMAGE, width: 1200, height: 630, alt: 'Two people holding a sencheq cheque between the flags of Ghana and Nigeria' },
+      { url: OG_POSTER, width: 1280, height: 720, alt: 'Poster frame from the sencheq brand video' },
+    ],
     videos: [{ url: OG_VIDEO, type: 'video/mp4', width: 1280, height: 720 }],
   },
   twitter: {
