@@ -39,7 +39,7 @@ import {
 } from '@cheque/core';
 import type { SenderAuthService } from '@cheque/notify';
 import { FxRateService } from './fx-rate.js';
-import { OtpService, EmailClient } from '@cheque/notify';
+import { EmailClient, OtpService, otpEmail } from '@cheque/notify';
 import type { Env } from '@cheque/shared';
 import { logger } from '@cheque/shared';
 import { deriveChequeIdHex, type ChequeContractClient, type CctpAdapter } from '@cheque/chain';
@@ -865,8 +865,7 @@ export function registerChequeRoutes(deps: ChequeServiceDeps): void {
       const { otp } = await deps.emailOtpService.createOtpSession({ contact: email });
       await deps.emailClient.sendEmail({
         to: email,
-        subject: 'Your sencheq verification code',
-        text: `Your verification code is ${otp}. It expires in 5 minutes. Do not share it.`,
+        ...otpEmail({ code: otp, purpose: 'claim your cheque' }),
       });
       return { success: true, message: 'Verification code sent.' };
     } catch (e) {

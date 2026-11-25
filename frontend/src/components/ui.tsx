@@ -1,5 +1,5 @@
 import { ScaleToFit } from './ScaleToFit';
-import { Loader2 } from 'lucide-react';
+import { CircleCheck, Loader2, XCircle } from 'lucide-react';
 import { STATE_LABEL } from '@/lib/api';
 import { amountInWords } from '@/lib/words';
 
@@ -45,6 +45,99 @@ export function ErrorNote({ children }: { children?: React.ReactNode }) {
     <p role="alert" className="rounded-[10px] border border-cedi/40 bg-cedi/5 px-4 py-3 text-sm text-cedi">
       {children}
     </p>
+  );
+}
+
+/** Meadow success note — the counterpart to ErrorNote. */
+export function SuccessNote({ children, className = '' }: { children?: React.ReactNode; className?: string }) {
+  if (!children) return null;
+  return (
+    <p
+      role="status"
+      className={`flex items-start gap-2.5 rounded-[10px] border border-brand-500/50 bg-brand-50 px-4 py-3 text-sm text-brand-900 ${className}`}
+    >
+      <CircleCheck className="mt-0.5 h-4 w-4 shrink-0 text-brand-600" aria-hidden />
+      <span>{children}</span>
+    </p>
+  );
+}
+
+/** Flat poster failure note: cedi border, rotated sticker head. No shadow. */
+export function FailureNote({ title, body, className = '' }: { title: string; body?: React.ReactNode; className?: string }) {
+  return (
+    <div role="alert" className={`rounded-[10px] border border-cedi/50 bg-cedi/5 px-4 py-3.5 ${className}`}>
+      <p className="flex items-center gap-2 text-sm font-semibold text-cedi">
+        <XCircle className="h-4 w-4 shrink-0" aria-hidden /> {title}
+      </p>
+      {body && <p className="mt-1 pl-6 text-sm text-ink-soft">{body}</p>}
+    </div>
+  );
+}
+
+/**
+ * Transaction processing rail: done steps fill meadow, the active one pulses, upcoming stay
+ * hollow. Flat poster ink — no gradients, no shadows.
+ */
+export function ProcessingRail({ steps, active }: { steps: string[]; active: number }) {
+  return (
+    <ol className="flex items-start" aria-label="Progress">
+      {steps.map((s, i) => {
+        const done = i < active;
+        const current = i === active;
+        return (
+          <li key={s} className={`flex items-start ${i < steps.length - 1 ? 'flex-1' : ''}`}>
+            <div className="flex w-16 shrink-0 flex-col items-center gap-1.5 sm:w-20">
+              <span
+                aria-hidden
+                className={`grid h-6 w-6 place-items-center rounded-full border-2 transition ${
+                  done
+                    ? 'border-brand-500 bg-brand-500 text-night'
+                    : current
+                      ? 'animate-pulse-soft border-brand-500 bg-brand-100'
+                      : 'border-sage/60 bg-transparent'
+                }`}
+              >
+                {done ? <CircleCheck className="h-3.5 w-3.5" strokeWidth={3} /> : current ? <span className="h-2 w-2 rounded-full bg-brand-500" /> : null}
+              </span>
+              <span
+                className={`text-center text-[10px] font-medium uppercase leading-tight tracking-[.12em] ${
+                  done || current ? 'text-ink' : 'text-moss'
+                }`}
+              >
+                {s}
+              </span>
+            </div>
+            {i < steps.length - 1 && (
+              <span
+                aria-hidden
+                className={`mt-3 h-0.5 flex-1 ${done ? 'bg-brand-500' : 'bg-sage/40'}`}
+              />
+            )}
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+/** Pulsing placeholder block for loading layouts. */
+export function Skeleton({ className = '' }: { className?: string }) {
+  return <div aria-hidden className={`animate-pulse-soft rounded-[10px] bg-ink/[.07] ${className}`} />;
+}
+
+/** Three meadow dots — the poster loader for short waits. */
+export function DotsLoader({ className = '' }: { className?: string }) {
+  return (
+    <span className={`inline-flex items-center gap-1.5 ${className}`} role="status" aria-label="Loading">
+      {[0, 1, 2].map((i) => (
+        <span
+          key={i}
+          className="h-2 w-2 animate-bounce-dot rounded-full bg-brand-500"
+          style={{ animationDelay: `${i * 140}ms` }}
+          aria-hidden
+        />
+      ))}
+    </span>
   );
 }
 
@@ -210,7 +303,7 @@ export function ChequePaper(props: {
           <div className="min-w-0">
             <Logo className="!text-[28px]" />
             <p className="mt-1 text-[10px] font-medium uppercase tracking-[.2em] text-night/60">
-              Cross-border cheque<span> · Settled on Stellar</span>
+              Cross-border cheque
             </p>
           </div>
           <div className="shrink-0 text-right">
@@ -238,7 +331,7 @@ export function ChequePaper(props: {
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
             <span className="text-[13px] font-bold">{currency}</span>
-            <div className="rounded-[4px] border-2 border-night bg-white/70 px-3 py-1.5">
+            <div className="rounded-[4px] border-2 border-night bg-paper/70 px-3 py-1.5">
               <p className={`display text-[38px] !leading-none tabular-nums`}>{props.amount}</p>
             </div>
           </div>
