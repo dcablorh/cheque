@@ -20,7 +20,7 @@ import { SignaturePad } from '@/components/SignaturePad';
 import { DepositCard } from '@/components/DepositCard';
 import { WalletButton } from '@/components/WalletButton';
 import { shortAddress, useWallet } from '@/lib/wallet';
-import { ChequePaper, ErrorNote, Logo, Spinner, StatusPill } from '@/components/ui';
+import { ChequePaper, ErrorNote, Logo, Patch, Spinner, StatusPill } from '@/components/ui';
 import { COUNTRIES, COUNTRY_LIST, type CountryCode } from '@/lib/countries';
 
 const LINKS_KEY = 'cheque.links.v1';
@@ -130,62 +130,93 @@ function SignIn({ onDone }: { onDone: () => void }) {
   }
 
   return (
-    <main className="mx-auto grid min-h-screen max-w-md content-center gap-8 px-5 py-10">
-      <Link href="/" className="justify-self-start">
-        <Logo />
-      </Link>
-      <Link href="/" className="justify-self-start mt-4 text-sm text-ink-soft hover:text-ink underline underline-offset-4">
-        ← Back to home
-      </Link>
-      <div className="card animate-rise p-7">
-        <h1 className="display ">{step === 'email' ? 'Welcome back' : 'Enter your code'}</h1>
-        <p className="mt-2 text-sm text-ink-soft">
-          {step === 'email'
-            ? 'Sign in with your email. We will send you a one-time code.'
-            : `We sent a 6-digit code to ${email}.`}
-        </p>
+    <main className="grid min-h-screen lg:grid-cols-[1.05fr_1fr]">
+      {/* poster panel */}
+      <aside className="relative hidden overflow-hidden bg-night text-paper lg:flex lg:flex-col lg:justify-between lg:p-12">
+        <Link href="/" className="justify-self-start">
+          <Logo tone="light" />
+        </Link>
+        <div className="relative">
+          <p className="eyebrow text-brand-500">Cross-border cheques</p>
+          <h2 className="display mt-6 text-[clamp(56px,6.5vw,96px)]">
+            Money moves
+            <br />
+            <span className="text-brand-500">like a message.</span>
+          </h2>
+          <p className="mt-6 max-w-sm text-paper/75">
+            Write a cheque, send the link on any chat app. Your recipient needs no account and no app — they open it
+            and choose where the money goes.
+          </p>
+          <Patch kind="globe" label="Across borders" rotate={-7} size={148} className="absolute -right-6 -top-28 hidden xl:block" />
+          <Patch kind="chat" label="Send in any chat" rotate={8} size={120} className="absolute -bottom-24 right-24 hidden xl:block" />
+        </div>
+        <p className="eyebrow !text-[11px] text-moss">Cross-border digital cheques</p>
+      </aside>
 
-        {step === 'email' ? (
-          <form onSubmit={requestCode} className="mt-6 space-y-4">
-            <div>
-              <label className="label" htmlFor="email">Email address</label>
-              <input id="email" className="field" type="email" autoComplete="email" placeholder="you@example.com"
-                value={email} onChange={(e) => setEmail(e.target.value)} autoFocus />
-            </div>
-            <ErrorNote>{error}</ErrorNote>
-            <button className="btn-primary w-full" disabled={busy || !email.trim()}>
-              {busy && <Spinner />} Send code
-            </button>
-          </form>
-        ) : (
-          <form onSubmit={verify} className="mt-6 space-y-4">
-            <div>
-              <label className="label" htmlFor="code">6-digit code</label>
-              <input id="code" className="field text-center font-mono text-2xl tracking-[.5em]" inputMode="numeric"
-                maxLength={6} autoComplete="one-time-code" value={code}
-                onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} autoFocus />
-            </div>
-            <div>
-              <label className="label" htmlFor="name">Your name <span className="font-normal normal-case text-ink-mute">(first time only)</span></label>
-              <input id="name" className="field" placeholder="Ama Owusu" value={name} onChange={(e) => setName(e.target.value)} />
-            </div>
-            {notice && <p className="text-sm text-brand-700">{notice}</p>}
-            <ErrorNote>{error}</ErrorNote>
-            <button className="btn-primary w-full" disabled={busy || code.length !== 6}>
-              {busy && <Spinner />} Verify and continue
-            </button>
-            <div className="flex items-center justify-between text-sm">
-              <button type="button" className="text-ink-soft underline disabled:no-underline disabled:opacity-50"
-                onClick={() => { setStep('email'); setCode(''); setError(''); setNotice(''); }}>
-                Use a different email
+      {/* form column */}
+      <div className="relative flex min-h-screen flex-col justify-center px-5 py-10 sm:px-10">
+        <div className="mx-auto w-full max-w-md">
+          <div className="flex items-center justify-between lg:hidden">
+            <Link href="/">
+              <Logo />
+            </Link>
+          </div>
+          <Link
+            href="/"
+            className="mt-6 inline-flex items-center gap-1.5 text-sm text-ink-soft transition hover:text-ink lg:mt-0"
+          >
+            ← Back to home
+          </Link>
+
+          <h1 className="display mt-8 text-[clamp(40px,7vw,58px)]">{step === 'email' ? 'Welcome back.' : 'Enter your code.'}</h1>
+          <p className="mt-3 text-ink-soft">
+            {step === 'email'
+              ? 'Sign in with your email. We will send you a one-time code.'
+              : `We sent a 6-digit code to ${email}.`}
+          </p>
+
+          {step === 'email' ? (
+            <form onSubmit={requestCode} className="mt-8 space-y-5">
+              <div>
+                <label className="label" htmlFor="email">Email address</label>
+                <input id="email" className="field" type="email" autoComplete="email" placeholder="you@example.com"
+                  value={email} onChange={(e) => setEmail(e.target.value)} autoFocus />
+              </div>
+              <ErrorNote>{error}</ErrorNote>
+              <button className="btn-primary w-full" disabled={busy || !email.trim()}>
+                {busy && <Spinner />} Send code
               </button>
-              <button type="button" className="text-ink-soft underline disabled:no-underline disabled:opacity-50"
-                onClick={() => requestCode()} disabled={busy || resendIn > 0}>
-                {resendIn > 0 ? `Resend in ${resendIn}s` : 'Resend code'}
+            </form>
+          ) : (
+            <form onSubmit={verify} className="mt-8 space-y-5">
+              <div>
+                <label className="label" htmlFor="code">6-digit code</label>
+                <input id="code" className="field text-center font-mono text-2xl tracking-[.5em]" inputMode="numeric"
+                  maxLength={6} autoComplete="one-time-code" value={code}
+                  onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} autoFocus />
+              </div>
+              <div>
+                <label className="label" htmlFor="name">Your name <span className="font-normal normal-case text-ink-mute">(first time only)</span></label>
+                <input id="name" className="field" placeholder="Ama Owusu" value={name} onChange={(e) => setName(e.target.value)} />
+              </div>
+              {notice && <p className="text-sm font-medium text-brand-700">{notice}</p>}
+              <ErrorNote>{error}</ErrorNote>
+              <button className="btn-primary w-full" disabled={busy || code.length !== 6}>
+                {busy && <Spinner />} Verify and continue
               </button>
-            </div>
-          </form>
-        )}
+              <div className="flex items-center justify-between text-sm">
+                <button type="button" className="text-ink-soft underline underline-offset-4 disabled:no-underline disabled:opacity-50"
+                  onClick={() => { setStep('email'); setCode(''); setError(''); setNotice(''); }}>
+                  Use a different email
+                </button>
+                <button type="button" className="text-ink-soft underline underline-offset-4 disabled:no-underline disabled:opacity-50"
+                  onClick={() => requestCode()} disabled={busy || resendIn > 0}>
+                  {resendIn > 0 ? `Resend in ${resendIn}s` : 'Resend code'}
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
       </div>
     </main>
   );
@@ -265,7 +296,7 @@ function Dashboard({ onSignOut }: { onSignOut: () => void }) {
         <>
           <div className="mt-8 flex flex-col gap-4 sm:mt-10 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <h1 className="display ">Your cheques</h1>
+              <h1 className="display ">Your cheques</h1>
               <p className="mt-1 text-sm text-ink-soft">Everything you have sent, and where it stands.</p>
             </div>
             <button className="btn-primary w-full sm:w-auto" onClick={() => setView('new')} disabled={!!config && !config.chainEnabled}>
@@ -279,7 +310,7 @@ function Dashboard({ onSignOut }: { onSignOut: () => void }) {
             {cheques?.length === 0 && (
               <div className="card flex flex-col items-center px-6 py-14 text-center">
                 <div className="mb-4 grid h-14 w-14 place-items-center rounded-full bg-night text-brand-500"><Send className="h-6 w-6" /></div>
-                <h2 className="display ">Write your first cheque</h2>
+                <h2 className="display ">Write your first cheque</h2>
                 <p className="mt-1 max-w-xs text-sm text-ink-soft">It takes under a minute. If you can send a message, you can send a cheque.</p>
               </div>
             )}
@@ -287,7 +318,7 @@ function Dashboard({ onSignOut }: { onSignOut: () => void }) {
               <button key={c.id} onClick={() => setView({ shared: c.id })}
                 className="card flex w-full flex-wrap items-center gap-x-4 gap-y-3 p-4 text-left transition hover:-translate-y-0.5 hover:border-night/30 sm:flex-nowrap sm:p-5">
                 <div className="min-w-0 basis-full sm:basis-auto sm:flex-1">
-                  <p className="truncate display ">{c.payeeName}</p>
+                  <p className="truncate display ">{c.payeeName}</p>
                   <p className="mt-1 truncate font-mono text-xs text-ink-mute">
                     {c.publicCode} · {['ACTIVE', 'CLAIMING'].includes(c.state) ? timeLeft(c.expiresAt) : fmtDate(c.createdAt)}
                   </p>
