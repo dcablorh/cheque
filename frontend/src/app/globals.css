@@ -76,7 +76,10 @@ body {
   .animate-fade,
   .animate-float,
   .animate-stamp,
-  .animate-bob {
+  .animate-bob,
+  .animate-globe-spin,
+  .animate-orbit-spin,
+  .animate-orbit-spin-rev {
     animation: none !important;
   }
 

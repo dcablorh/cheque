@@ -2,7 +2,6 @@ import Link from 'next/link';
 import {
   ArrowRight,
   Check,
-  ChevronDown,
   Landmark,
   Lock,
   MessageCircle,
@@ -14,7 +13,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { ChequePaper, CorridorMap, Logo, Patch } from '@/components/ui';
-import { ChequeCalculator } from '@/components/ChequeCalculator';
+import { GlobeOrbit } from '@/components/GlobeOrbit';
 
 const CHANNELS = ['WhatsApp', 'Telegram', 'Instagram', 'Messenger', 'iMessage', 'SMS', 'Email'];
 
@@ -209,15 +208,17 @@ export default function Home() {
             Cross-border digital cheques. Send the link on WhatsApp, Telegram or Instagram. Your recipient needs no
             account and no app. Unclaimed cheques come straight back.
           </p>
-          <div className="mx-auto mt-10 max-w-[560px] animate-rise [animation-delay:340ms]">
-            <ChequeCalculator />
+          <div className="mx-auto mt-10 flex w-full max-w-md animate-rise flex-col gap-3 [animation-delay:340ms] sm:max-w-none sm:flex-row sm:justify-center">
+            <Link href="/app" className="btn-primary w-full px-9 py-4 sm:w-auto">
+              Write a cheque <ArrowRight className="h-4 w-4" />
+            </Link>
+            <a href="#how" className="btn-ghost w-full px-9 py-4 sm:w-auto">
+              How it works
+            </a>
           </div>
-          <a
-            href="#how"
-            className="mt-8 inline-flex animate-rise items-center gap-1.5 text-sm font-semibold text-ink [animation-delay:420ms] hover:text-brand-700"
-          >
-            See how it works <ChevronDown className="h-4 w-4" />
-          </a>
+          <div className="mt-6">
+            <GlobeOrbit />
+          </div>
         </div>
       </header>
 
