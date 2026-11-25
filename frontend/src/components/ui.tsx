@@ -42,7 +42,7 @@ export function StatusPill({ state }: { state: string }) {
 export function ErrorNote({ children }: { children?: React.ReactNode }) {
   if (!children) return null;
   return (
-    <p role="alert" className="rounded-[10px] border border-cedi/40 bg-cedi/5 px-4 py-3 text-sm text-cedi">
+    <p role="alert" className="animate-fade rounded-[10px] border border-cedi/40 bg-cedi/5 px-4 py-3 text-sm text-cedi">
       {children}
     </p>
   );

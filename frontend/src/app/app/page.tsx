@@ -453,7 +453,7 @@ function NewCheque({
           <div className="flex gap-2">
             {EXPIRIES.map((x) => (
               <button type="button" key={x.h} onClick={() => setHours(x.h)} aria-pressed={hours === x.h}
-                className={`min-h-[40px] flex-1 rounded-[10px] border px-3 py-2 text-xs font-semibold transition ${hours === x.h ? 'border-night bg-night text-paper' : 'border-ink/15 bg-white text-ink-soft hover:border-ink/30'}`}>
+                className={`press min-h-[40px] flex-1 rounded-[10px] border px-3 py-2 text-xs font-semibold  ${hours === x.h ? 'border-night bg-night text-paper' : 'border-ink/15 bg-white text-ink-soft hover:border-ink/30'}`}>
                 {x.label}
               </button>
             ))}

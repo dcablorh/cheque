@@ -304,7 +304,7 @@ export default function ClaimPage() {
         </p>
 
         {step === 'summary' && (
-          <div className="card space-y-4 p-6">
+          <div key="summary" className="card animate-fade space-y-4 p-6">
             <div className="flex gap-3">
               <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-brand-600" />
               <p className="text-sm text-ink-soft">
@@ -342,7 +342,7 @@ export default function ClaimPage() {
               await refresh();
               setStep('destination');
             });
-          }} className="card space-y-5 p-6">
+          }} className="card animate-fade space-y-5 p-6">
             <div>
               <h2 className="display">Verify your email</h2>
               <p className="mt-1 text-sm text-ink-soft">Enter the 6-digit code we sent to your email.</p>
@@ -360,11 +360,12 @@ export default function ClaimPage() {
               await publicApi.post(`/claim/${token}/otp/send`, {});
               setOtpSent(true);
             })}>Resend code</button>
+            {otpSent && <p role="status" className="animate-fade text-center text-xs text-brand-700">Code sent. Check your inbox and spam folder.</p>}
           </form>
         )}
 
         {step === 'destination' && (
-          <form onSubmit={redeem} className="card space-y-5 p-6">
+          <form onSubmit={redeem} className="card animate-fade space-y-5 p-6">
             <div>
               <h2 className="display">Where should it go?</h2>
               <p className="mt-1 text-sm text-ink-soft">
@@ -382,9 +383,10 @@ export default function ClaimPage() {
                     type="button"
                     onClick={() => !disabled && selectRail(r.id)}
                     disabled={disabled}
-                    className={`rounded-[10px] p-4 text-left ${disabled ? 'opacity-50 cursor-not-allowed' : selected ? 'border-2 border-night bg-brand-50' : 'border border-ink/10 bg-ink/[.03]'}`}
+                    className={`press rounded-[10px] border-2 p-4 text-left  ${disabled ? 'cursor-not-allowed border-ink/10 bg-ink/[.03] opacity-50' : selected ? 'border-night bg-brand-50' : 'border-ink/10 bg-ink/[.03] hover:border-ink/25'}`}
                     aria-pressed={selected}
                     aria-disabled={disabled}
+                    title={disabled ? `${r.title} bridging is not configured on this deployment` : undefined}
                   >
                     <Wallet className={`mb-2 h-5 w-5 ${selected ? 'text-brand-700' : 'text-ink-mute'}`} />
                     <p className="font-semibold">{r.title}{disabled && ' (CCTP not configured)'}</p>
@@ -394,11 +396,10 @@ export default function ClaimPage() {
               })}
             </div>
 
-            <div className="rounded-[10px] border border-ink/10 bg-ink/[.03] p-4 opacity-60">
-              <Smartphone className="mb-2 h-5 w-5 text-ink-mute" />
-              <p className="font-semibold">{COUNTRIES[cheque.corridor ?? 'GH'].localRail}</p>
-              <p className="text-xs text-ink-soft">Coming soon</p>
-            </div>
+            <p className="flex items-start gap-2 text-xs text-ink-mute">
+              <Smartphone className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              {COUNTRIES[cheque.corridor ?? 'GH'].localRail} cash-out is coming soon — for now the money arrives as USDC in the wallet you enter below.
+            </p>
 
             <div>
               <label className="label" htmlFor="addr">{rail.title} address</label>
@@ -430,7 +431,7 @@ export default function ClaimPage() {
             </div>
 
             {quote && (
-              <div className="rounded-[10px] border border-ink/10 bg-paper p-4 text-sm">
+              <div className="animate-fade rounded-[10px] border border-ink/10 bg-paper p-4 text-sm">
                 {chain === 'stellar' ? (
                   <p>You will receive <span className="font-semibold">{quote.amountUsdc} USDC</span> on Stellar.</p>
                 ) : (
