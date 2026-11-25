@@ -53,10 +53,12 @@ Rules:
 
 | Role | Font | Notes |
 |---|---|---|
-| Display | **Antonio** (stand-in for Deacon), 700, uppercase | `font-serif` in Tailwind maps to it. Use the `.display` class |
+| Display | **Anton** (stand-in for Deacon), its single black weight, uppercase | `font-serif` in Tailwind maps to it. Use the `.display` class — it sets no weight on purpose |
 | Body and UI | **Inter**, 400 and 500 | `font-sans` |
 | Codes, numbers on the cheque | **DM Mono**, 400 and 500 | `font-mono`. Cheque number, the number strip |
 | Signature (fallback) | Snell Roundhand / Segoe Script / Brush Script | Only on the cheque, when nothing is drawn |
+
+Motion: sections fade and rise in via `<Reveal>` (IntersectionObserver adds `.in`; stagger siblings with `delay`). Corridor pills ticker uses `.marquee-track` (pauses on hover). Everything opts out under `prefers-reduced-motion`.
 
 Display rules:
 - Always use `.display`: uppercase, `leading-[.85]`, tracking `-.01em`. For the hero use `!leading-[.9]`.
@@ -114,6 +116,14 @@ Radius 20px, 1px `sage` border, background `#faf7f1`, `shadow-card`. Padding 16 
 ### Status pill (`StatusPill`)
 Pill, 11px, uppercase, `tracking-[.16em]`, ring-inset. Tones: green (Ready to claim, Paid), amber/sun (Funding, pending), blue/river (Paying out), red/cedi (Under review), gray (Cancelled, Expired, Refunded). States and labels live in `STATE_LABEL` in `lib/api.ts`. Never invent labels in a screen.
 
+### States and loading
+
+- **Success** — `SuccessNote` (meadow border, check icon). Full moments (cheque delivered) get a meadow disc with a check plus the stamped cheque.
+- **Failure** — `ErrorNote` for inline errors; `FailureNote` for titled failures (manual payout recovery). Dead cheques get the night disc with a meadow icon on a plain card.
+- **Processing** — `ProcessingRail`: flat meadow step rail (done fills, active pulses, upcoming hollow) used while a payout or escrow redeem is in flight. Short waits use `DotsLoader` (three meadow dots).
+- **Loading layouts** — `Skeleton` blocks shaped like the content they stand in for: a cheque-shaped block on the claim page, `h-[76px]` rows in the cheque list. Never a bare spinner for a full screen.
+- **Sharing** — the share panel offers Copy, WhatsApp (primary), Telegram and Email intents. No SMS.
+
 ### Error note (`ErrorNote`)
 10px radius, `cedi/40` border, `cedi/5` fill, `cedi` text. Use `role="alert"`.
 
@@ -138,7 +148,7 @@ The cheque is the product. Keep it consistent everywhere (landing, new cheque pr
 
 - **Shape:** a long landscape ticket, 720px design width, scaled to fit its container by `ScaleToFit` (up to 1.25x). It never reflows or stacks on small screens.
 - **Surface:** warm cream `#f4efe0`, guilloche wave pattern at 16% opacity, thin inner border, radius 10px, `shadow-cheque`.
-- **Layout, top to bottom:** logo and "Cross-border cheque · Settled on Stellar" left; cheque number (`No. CHQ-XXXXXX`, mono) and date right; "Pay to the order of" with the payee in display type; currency code and a boxed amount on the right; the amount in words on its own line; memo left; signature right; a number strip at the bottom.
+- **Layout, top to bottom:** logo and "Cross-border cheque" left; cheque number (`No. CHQ-XXXXXX`, mono) and date right; "Pay to the order of" with the payee in display type; currency code and a boxed amount on the right; the amount in words on its own line; memo left; signature right; a number strip at the bottom.
 - **Amount in words** (`amountInWords`): spelled out with local units, no fractions. "Five hundred ninety dollars", "One thousand two hundred cedis and fifty pesewas", "Seventy-five thousand naira and one kobo". Blank until an amount is entered.
 - **Cheque number:** `CHQ-` plus 6 characters from `23456789ABCDEFGHJKLMNPQRSTUVWXYZ`. The preview number is the issued number.
 - **Date:** today on the preview, creation date afterwards. Format `13 Nov 2026`.

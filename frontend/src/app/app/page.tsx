@@ -20,7 +20,7 @@ import { SignaturePad } from '@/components/SignaturePad';
 import { DepositCard } from '@/components/DepositCard';
 import { WalletButton } from '@/components/WalletButton';
 import { shortAddress, useWallet } from '@/lib/wallet';
-import { ChequePaper, ErrorNote, Logo, Spinner, StatusPill } from '@/components/ui';
+import { ChequePaper, DotsLoader, ErrorNote, Logo, Patch, Skeleton, Spinner, StatusPill, SuccessNote } from '@/components/ui';
 import { COUNTRIES, COUNTRY_LIST, type CountryCode } from '@/lib/countries';
 
 const LINKS_KEY = 'cheque.links.v1';
@@ -38,6 +38,22 @@ const saveLink = (id: string, url: string) => {
     /* storage unavailable */
   }
 };
+
+/**
+ * Recipient-facing share messages. One is picked at random when the share panel opens, so every
+ * cheque announcement reads a little different. Each takes (payee, sender, amount) and returns
+ * the message without the claim link — channels append the link themselves.
+ */
+const SHARE_LINES = [
+  (p: string, s: string, a: string) =>
+    `🎉 Hi ${p}! ${s} just sent you a cheque for ${a}. Open the link to claim it — no app, no sign-up, and you choose where the money goes.`,
+  (p: string, s: string, a: string) =>
+    `✉️ Good news, ${p} — a cheque for ${a} from ${s} is waiting for you. Claiming takes under a minute: open the link and pick where the money lands.`,
+  (p: string, s: string, a: string) =>
+    `💸 ${s} sent you ${a} by cheque. Open it whenever you're ready and choose where it goes — your wallet, your call.`,
+  (p: string, s: string, a: string) =>
+    `📮 Something good in the post today, ${p}: a ${a} cheque from ${s}. Tap the link, tell us where to send it, done.`,
+];
 
 /** prepare -> wallet signs -> submit, for a deposit ('create') or a cancel. */
 async function runWalletTx(
@@ -130,62 +146,93 @@ function SignIn({ onDone }: { onDone: () => void }) {
   }
 
   return (
-    <main className="mx-auto grid min-h-screen max-w-md content-center gap-8 px-5 py-10">
-      <Link href="/" className="justify-self-start">
-        <Logo />
-      </Link>
-      <Link href="/" className="justify-self-start mt-4 text-sm text-ink-soft hover:text-ink underline underline-offset-4">
-        ← Back to home
-      </Link>
-      <div className="card animate-rise p-7">
-        <h1 className="display ">{step === 'email' ? 'Welcome back' : 'Enter your code'}</h1>
-        <p className="mt-2 text-sm text-ink-soft">
-          {step === 'email'
-            ? 'Sign in with your email. We will send you a one-time code.'
-            : `We sent a 6-digit code to ${email}.`}
-        </p>
+    <main className="grid min-h-screen lg:grid-cols-[1.05fr_1fr]">
+      {/* poster panel */}
+      <aside className="relative hidden overflow-hidden bg-night text-paper lg:flex lg:flex-col lg:justify-between lg:p-12">
+        <Link href="/" className="justify-self-start">
+          <Logo tone="light" />
+        </Link>
+        <div className="relative">
+          <p className="eyebrow text-brand-500">Cross-border cheques</p>
+          <h2 className="display mt-6 text-[clamp(56px,6.5vw,96px)]">
+            Money moves
+            <br />
+            <span className="text-brand-500">like a message.</span>
+          </h2>
+          <p className="mt-6 max-w-sm text-paper/75">
+            Write a cheque, send the link on any chat app. Your recipient needs no account and no app — they open it
+            and choose where the money goes.
+          </p>
+          <Patch kind="globe" label="Across borders" rotate={-7} size={148} className="absolute -right-6 -top-28 hidden xl:block" />
+          <Patch kind="chat" label="Send in any chat" rotate={8} size={120} className="absolute -bottom-24 right-24 hidden xl:block" />
+        </div>
+        <p className="eyebrow !text-[11px] text-moss">Cross-border digital cheques</p>
+      </aside>
 
-        {step === 'email' ? (
-          <form onSubmit={requestCode} className="mt-6 space-y-4">
-            <div>
-              <label className="label" htmlFor="email">Email address</label>
-              <input id="email" className="field" type="email" autoComplete="email" placeholder="you@example.com"
-                value={email} onChange={(e) => setEmail(e.target.value)} autoFocus />
-            </div>
-            <ErrorNote>{error}</ErrorNote>
-            <button className="btn-primary w-full" disabled={busy || !email.trim()}>
-              {busy && <Spinner />} Send code
-            </button>
-          </form>
-        ) : (
-          <form onSubmit={verify} className="mt-6 space-y-4">
-            <div>
-              <label className="label" htmlFor="code">6-digit code</label>
-              <input id="code" className="field text-center font-mono text-2xl tracking-[.5em]" inputMode="numeric"
-                maxLength={6} autoComplete="one-time-code" value={code}
-                onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} autoFocus />
-            </div>
-            <div>
-              <label className="label" htmlFor="name">Your name <span className="font-normal normal-case text-ink-mute">(first time only)</span></label>
-              <input id="name" className="field" placeholder="Ama Owusu" value={name} onChange={(e) => setName(e.target.value)} />
-            </div>
-            {notice && <p className="text-sm text-brand-700">{notice}</p>}
-            <ErrorNote>{error}</ErrorNote>
-            <button className="btn-primary w-full" disabled={busy || code.length !== 6}>
-              {busy && <Spinner />} Verify and continue
-            </button>
-            <div className="flex items-center justify-between text-sm">
-              <button type="button" className="text-ink-soft underline disabled:no-underline disabled:opacity-50"
-                onClick={() => { setStep('email'); setCode(''); setError(''); setNotice(''); }}>
-                Use a different email
+      {/* form column */}
+      <div className="relative flex min-h-screen flex-col justify-center px-5 py-10 sm:px-10">
+        <div className="mx-auto w-full max-w-md">
+          <div className="flex items-center justify-between lg:hidden">
+            <Link href="/">
+              <Logo />
+            </Link>
+          </div>
+          <Link
+            href="/"
+            className="mt-6 inline-flex items-center gap-1.5 text-sm text-ink-soft transition hover:text-ink lg:mt-0"
+          >
+            ← Back to home
+          </Link>
+
+          <h1 className="display mt-8 text-[clamp(40px,7vw,58px)]">{step === 'email' ? 'Welcome back.' : 'Enter your code.'}</h1>
+          <p className="mt-3 text-ink-soft">
+            {step === 'email'
+              ? 'Sign in with your email. We will send you a one-time code.'
+              : `We sent a 6-digit code to ${email}.`}
+          </p>
+
+          {step === 'email' ? (
+            <form onSubmit={requestCode} className="mt-8 space-y-5">
+              <div>
+                <label className="label" htmlFor="email">Email address</label>
+                <input id="email" className="field" type="email" autoComplete="email" placeholder="you@example.com"
+                  value={email} onChange={(e) => setEmail(e.target.value)} autoFocus />
+              </div>
+              <ErrorNote>{error}</ErrorNote>
+              <button className="btn-primary w-full" disabled={busy || !email.trim()}>
+                {busy && <Spinner />} Send code
               </button>
-              <button type="button" className="text-ink-soft underline disabled:no-underline disabled:opacity-50"
-                onClick={() => requestCode()} disabled={busy || resendIn > 0}>
-                {resendIn > 0 ? `Resend in ${resendIn}s` : 'Resend code'}
+            </form>
+          ) : (
+            <form onSubmit={verify} className="mt-8 space-y-5">
+              <div>
+                <label className="label" htmlFor="code">6-digit code</label>
+                <input id="code" className="field text-center font-mono text-2xl tracking-[.5em]" inputMode="numeric"
+                  maxLength={6} autoComplete="one-time-code" value={code}
+                  onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} autoFocus />
+              </div>
+              <div>
+                <label className="label" htmlFor="name">Your name <span className="font-normal normal-case text-ink-mute">(first time only)</span></label>
+                <input id="name" className="field" placeholder="Ama Owusu" value={name} onChange={(e) => setName(e.target.value)} />
+              </div>
+              {notice && <p className="text-sm font-medium text-brand-700">{notice}</p>}
+              <ErrorNote>{error}</ErrorNote>
+              <button className="btn-primary w-full" disabled={busy || code.length !== 6}>
+                {busy && <Spinner />} Verify and continue
               </button>
-            </div>
-          </form>
-        )}
+              <div className="flex items-center justify-between text-sm">
+                <button type="button" className="text-ink-soft underline underline-offset-4 disabled:no-underline disabled:opacity-50"
+                  onClick={() => { setStep('email'); setCode(''); setError(''); setNotice(''); }}>
+                  Use a different email
+                </button>
+                <button type="button" className="text-ink-soft underline underline-offset-4 disabled:no-underline disabled:opacity-50"
+                  onClick={() => requestCode()} disabled={busy || resendIn > 0}>
+                  {resendIn > 0 ? `Resend in ${resendIn}s` : 'Resend code'}
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
       </div>
     </main>
   );
@@ -265,7 +312,7 @@ function Dashboard({ onSignOut }: { onSignOut: () => void }) {
         <>
           <div className="mt-8 flex flex-col gap-4 sm:mt-10 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <h1 className="display ">Your cheques</h1>
+              <h1 className="display ">Your cheques</h1>
               <p className="mt-1 text-sm text-ink-soft">Everything you have sent, and where it stands.</p>
             </div>
             <button className="btn-primary w-full sm:w-auto" onClick={() => setView('new')} disabled={!!config && !config.chainEnabled}>
@@ -275,11 +322,18 @@ function Dashboard({ onSignOut }: { onSignOut: () => void }) {
 
           <div className="mt-6 space-y-3">
             <ErrorNote>{error}</ErrorNote>
-            {cheques === null && !error && <div className="flex justify-center py-16"><Spinner className="h-6 w-6 text-brand-600" /></div>}
+            {cheques === null && !error && (
+              <div className="space-y-3" aria-busy="true" aria-label="Loading cheques">
+                {[0, 1, 2].map((i) => (
+                  <Skeleton key={i} className="h-[76px] w-full rounded-[20px]" />
+                ))}
+                <div className="flex justify-center pt-4"><DotsLoader /></div>
+              </div>
+            )}
             {cheques?.length === 0 && (
               <div className="card flex flex-col items-center px-6 py-14 text-center">
                 <div className="mb-4 grid h-14 w-14 place-items-center rounded-full bg-night text-brand-500"><Send className="h-6 w-6" /></div>
-                <h2 className="display ">Write your first cheque</h2>
+                <h2 className="display ">Write your first cheque</h2>
                 <p className="mt-1 max-w-xs text-sm text-ink-soft">It takes under a minute. If you can send a message, you can send a cheque.</p>
               </div>
             )}
@@ -287,7 +341,7 @@ function Dashboard({ onSignOut }: { onSignOut: () => void }) {
               <button key={c.id} onClick={() => setView({ shared: c.id })}
                 className="card flex w-full flex-wrap items-center gap-x-4 gap-y-3 p-4 text-left transition hover:-translate-y-0.5 hover:border-night/30 sm:flex-nowrap sm:p-5">
                 <div className="min-w-0 basis-full sm:basis-auto sm:flex-1">
-                  <p className="truncate display ">{c.payeeName}</p>
+                  <p className="truncate display ">{c.payeeName}</p>
                   <p className="mt-1 truncate font-mono text-xs text-ink-mute">
                     {c.publicCode} · {['ACTIVE', 'CLAIMING'].includes(c.state) ? timeLeft(c.expiresAt) : fmtDate(c.createdAt)}
                   </p>
@@ -453,7 +507,7 @@ function NewCheque({
           <div className="flex gap-2">
             {EXPIRIES.map((x) => (
               <button type="button" key={x.h} onClick={() => setHours(x.h)} aria-pressed={hours === x.h}
-                className={`min-h-[40px] flex-1 rounded-[10px] border px-3 py-2 text-xs font-semibold transition ${hours === x.h ? 'border-night bg-night text-paper' : 'border-ink/15 bg-white text-ink-soft hover:border-ink/30'}`}>
+                className={`min-h-[40px] flex-1 rounded-[10px] border px-3 py-2 text-xs font-semibold transition ${hours === x.h ? 'border-night bg-night text-paper' : 'border-ink/15 bg-[#faf7f1] text-ink-soft hover:border-ink/30'}`}>
                 {x.label}
               </button>
             ))}
@@ -462,7 +516,7 @@ function NewCheque({
         </div>
         <div className="flex flex-col">
           <span className="label !mb-1 !text-[10px]">Your signature <span className="font-normal normal-case">(optional, appears on the cheque)</span></span>
-          <div className="relative flex-1 overflow-hidden rounded-[10px] border border-sage/60 bg-white">
+          <div className="relative flex-1 overflow-hidden rounded-[10px] border border-sage/60 bg-[#faf7f1]">
             <SignaturePad onChange={setSignature} className="h-full min-h-[190px]" hint="Draw your signature here" />
           </div>
         </div>
@@ -543,17 +597,44 @@ function SharePanel({
     };
   }, [id, cheque?.state]);
 
-  if (!cheque) return <div className="flex justify-center py-24"><Spinner className="h-6 w-6 text-brand-600" /></div>;
+  if (!cheque) return <div className="flex justify-center py-24"><DotsLoader /></div>;
 
   const live = cheque.state === 'ACTIVE';
   const walletMismatch = !!cheque.funderAddress && !!address && address !== cheque.funderAddress;
   const needsWalletConnect = !!cheque.funderAddress && !address;
   const payeeEmail = detail?.payeeEmail ?? cheque.payeeEmail ?? null;
   const payout = detail?.payout ?? null;
-  const waText = url
-    ? `Hi ${cheque.payeeName.split(' ')[0]}, I've sent you a ${fmtMoney(cheque.amount, cheque.currency)} cheque. Open to claim: ${url}`
-    : '';
-  const wa = `https://wa.me/?text=${encodeURIComponent(waText)}`;
+  const payeeFirst = cheque.payeeName.split(' ')[0];
+  const senderFirst = session.get()?.name?.trim().split(' ')[0] || 'Someone';
+  const amountLabel = fmtMoney(cheque.amount, cheque.currency);
+  // Picked once per mount; the panel only renders after `url` resolves, so no SSR mismatch.
+  const [shareLine] = useState(() => SHARE_LINES[Math.floor(Math.random() * SHARE_LINES.length)]);
+  const shareText = url ? shareLine(payeeFirst, senderFirst, amountLabel) : '';
+  const allShares = url && shareText
+    ? [
+        {
+          label: 'WhatsApp',
+          href: `https://wa.me/?text=${encodeURIComponent(`${shareText}\n${url}`)}`,
+          icon: MessageCircle,
+        },
+        {
+          label: 'Telegram',
+          href: `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(
+            `${shareText}\n`
+          )}`,
+          icon: Send,
+        },
+        {
+          label: 'Email',
+          href: `mailto:?subject=${encodeURIComponent(`${amountLabel} cheque from ${senderFirst}`)}&body=${encodeURIComponent(
+            `${shareText}\n\n${url}\n\nSent with sencheq — if you can send a message, you can send money.`
+          )}`,
+          icon: Mail,
+        },
+      ]
+    : [];
+  const primaryShare = allShares[0];
+  const otherShares = allShares.slice(1);
 
   async function copy() {
     if (!url) return;
@@ -639,8 +720,8 @@ function SharePanel({
         </div>
       )}
       {cheque.state === 'PENDING_FUNDING' && !cheque.funderAddress && (
-        <p className="mt-4 flex items-center gap-2 rounded-[10px] border border-gold-400/50 bg-gold-300/30 px-4 py-3 text-sm text-[#5c4300]">
-          <Spinner /> Locking funds in escrow on Stellar. This usually takes a few seconds.
+        <p className="mt-4 flex items-center gap-2.5 rounded-[10px] border border-gold-400/50 bg-gold-300/30 px-4 py-3 text-sm text-[#5c4300]">
+          <DotsLoader className="shrink-0" /> Locking funds in escrow. This usually takes a few seconds.
         </p>
       )}
 
@@ -668,9 +749,18 @@ function SharePanel({
                 </button>
               </div>
               {copyFailed && <p className="text-xs text-cedi">Could not copy automatically. Select the link above and copy it.</p>}
-              <a href={wa} target="_blank" rel="noreferrer" className="btn-primary w-full">
-                <MessageCircle className="h-4 w-4" /> Send on WhatsApp
-              </a>
+              {primaryShare && (
+                <a href={primaryShare.href} target="_blank" rel="noreferrer" className="btn-primary w-full">
+                  <primaryShare.icon className="h-4 w-4" /> Send on {primaryShare.label}
+                </a>
+              )}
+              <div className="grid grid-cols-2 gap-3">
+                {otherShares.map((s) => (
+                  <a key={s.label} href={s.href} target="_blank" rel="noreferrer" className="btn-ghost w-full">
+                    <s.icon className="h-4 w-4" /> {s.label}
+                  </a>
+                ))}
+              </div>
             </>
           ) : (
             <p className="rounded-[10px] bg-paper px-4 py-3 text-sm text-ink-soft">
@@ -694,21 +784,22 @@ function SharePanel({
         </div>
       )}
       {cheque.state === 'SETTLED' && (
-        <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-[10px] border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-brand-900">
-          <span>
-            Delivered. {cheque.payeeName} has been paid{payout ? ` on ${destLabel}` : ''}.
-          </span>
+        <SuccessNote className="mt-5">
+          <span className="font-semibold">Delivered.</span> {cheque.payeeName} has been paid{payout ? ` on ${destLabel}` : ''}.
           {payout?.explorerUrl && (
-            <a
-              href={payout.explorerUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1 font-semibold text-brand-700 underline underline-offset-4"
-            >
-              View receipt <ExternalLink className="h-3.5 w-3.5" />
-            </a>
+            <>
+              {' '}
+              <a
+                href={payout.explorerUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 font-semibold text-brand-700 underline underline-offset-4"
+              >
+                View receipt <ExternalLink className="h-3.5 w-3.5" />
+              </a>
+            </>
           )}
-        </div>
+        </SuccessNote>
       )}
       <p className="mt-6 text-center text-xs text-ink-mute">
         <button onClick={onRefresh} className="inline-flex items-center gap-1 underline"><RefreshCw className="h-3 w-3" />Refresh</button>
