@@ -2,7 +2,6 @@ import Link from 'next/link';
 import {
   ArrowRight,
   Check,
-  Landmark,
   Lock,
   MessageCircle,
   Plus,
@@ -13,6 +12,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { ChequePaper, CorridorMap, Logo, Patch } from '@/components/ui';
+import { Reveal } from '@/components/Reveal';
 
 const CHANNELS = ['WhatsApp', 'Telegram', 'Instagram', 'Messenger', 'iMessage', 'SMS', 'Email'];
 
@@ -39,34 +39,23 @@ const STEPS = [
   },
 ];
 
-const COUNTRIES = [
-  {
-    code: 'GH',
-    name: 'Ghana',
-    currency: 'GHS',
-    symbol: '₵',
-    range: '₵1.5 – ₵1,000,000',
-    local: 'Mobile Money',
-    note: 'MTN, Telecel and AT',
-  },
-  {
-    code: 'NG',
-    name: 'Nigeria',
-    currency: 'NGN',
-    symbol: '₦',
-    range: '₦1.5 – ₦1,000,000',
-    local: 'Bank transfer',
-    note: 'Any Nigerian bank account',
-  },
-  {
-    code: 'US',
-    name: 'United States',
-    currency: 'USD',
-    symbol: '$',
-    range: '$1.5 – $1,000,000',
-    local: 'Bank transfer (ACH)',
-    note: 'Routing and account number',
-  },
+/** Corridors live today, in cheque order. */
+const LIVE_COUNTRIES = [
+  { code: 'GH', name: 'Ghana', flag: '🇬🇭', currency: 'GHS', symbol: '₵', local: 'Mobile Money', note: 'MTN, Telecel and AT' },
+  { code: 'NG', name: 'Nigeria', flag: '🇳🇬', currency: 'NGN', symbol: '₦', local: 'Bank transfer', note: 'Any Nigerian bank account' },
+  { code: 'US', name: 'United States', flag: '🇺🇸', currency: 'USD', symbol: '$', local: 'Bank transfer (ACH)', note: 'Routing and account number' },
+];
+
+/** Corridors on the roadmap — the ticker and the waitlist row are built for this list to grow. */
+const COMING_COUNTRIES = [
+  { name: 'Kenya', flag: '🇰🇪', currency: 'KES' },
+  { name: 'United Kingdom', flag: '🇬🇧', currency: 'GBP' },
+  { name: 'Philippines', flag: '🇵🇭', currency: 'PHP' },
+  { name: 'South Africa', flag: '🇿🇦', currency: 'ZAR' },
+  { name: 'India', flag: '🇮🇳', currency: 'INR' },
+  { name: 'Brazil', flag: '🇧🇷', currency: 'BRL' },
+  { name: 'Eurozone', flag: '🇪🇺', currency: 'EUR' },
+  { name: 'Canada', flag: '🇨🇦', currency: 'CAD' },
 ];
 
 const FEATURES = [
@@ -133,14 +122,17 @@ const FAQ = [
   },
 ];
 
-function SectionHead({ eyebrow, title, light }: { eyebrow: string; title: React.ReactNode; light?: boolean }) {
+function SectionHead({ eyebrow, title, light, n }: { eyebrow: string; title: React.ReactNode; light?: boolean; n?: string }) {
   return (
-    <div>
-      <p className={`eyebrow border-b pb-4 ${light ? 'border-sage text-brand-500' : 'border-sage/50 text-brand-700'}`}>
-        {eyebrow}
-      </p>
+    <Reveal>
+      <div className="flex items-baseline gap-4">
+        {n && <span className={`eyebrow ${light ? 'text-brand-500' : 'text-brand-700'}`}>{n}</span>}
+        <p className={`eyebrow border-b pb-4 ${light ? 'border-sage text-brand-500' : 'border-sage/50 text-brand-700'}`}>
+          {eyebrow}
+        </p>
+      </div>
       <h2 className="display mt-8 text-[clamp(44px,8vw,110px)]">{title}</h2>
-    </div>
+    </Reveal>
   );
 }
 
@@ -175,13 +167,15 @@ export default function Home() {
             </Link>
             <a
               href="#how"
-              className="btn w-full border border-paper/60 px-9 py-4 text-paper hover:bg-paper/10 focus-visible:ring-offset-night sm:w-auto"
+              className="btn-ghost-light w-full px-9 py-4 focus-visible:ring-offset-night sm:w-auto"
             >
               How it works
             </a>
           </div>
         </div>
         <CorridorMap className="pointer-events-none absolute inset-x-0 bottom-0 h-[34vw] min-h-[200px] w-full md:h-[300px]" />
+        <Patch kind="chat" label="Send in any chat" rotate={-8} size={132} className="absolute left-[6%] top-24 z-10 hidden lg:block" />
+        <Patch kind="coin" label="Their money" rotate={7} size={116} className="absolute right-[7%] top-40 z-10 hidden lg:block" />
       </header>
 
       {/* works with any messaging app */}
@@ -198,90 +192,120 @@ export default function Home() {
 
       {/* cheque showcase */}
       <section className="relative mx-auto max-w-[1200px] px-5 pb-28 pt-24">
-        <div className="relative mx-auto max-w-[760px]">
+        <Reveal className="relative mx-auto max-w-[760px]">
           <div className="-rotate-2">
             <ChequePaper currency="GHS" amountValue={500} date="12 Nov 2026" amount="₵500.00" payee="Kojo Mensah" from="Ama" note="For rent, thank you" code="CHQ-82F9K2" stamp="Paid" />
           </div>
           <div className="absolute -bottom-9 left-4 z-10 rotate-[-4deg] bg-brand-500 px-4 py-2 text-xs font-medium uppercase tracking-[.18em] text-night">
             Held in escrow until claimed
           </div>
-        </div>
+        </Reveal>
       </section>
 
       {/* how it works */}
       <section id="how" className="mx-auto max-w-[1200px] scroll-mt-20 px-5 pb-28">
-        <SectionHead eyebrow="How it works" title={<>Four steps.<br />No sign-up for them.</>} />
+        <SectionHead n="01" eyebrow="How it works" title={<>Four steps.<br />No sign-up for them.</>} />
         <ol className="mt-14 divide-y divide-sage/50 border-y border-sage/50">
-          {STEPS.map((s) => (
-            <li key={s.n} className="grid gap-3 py-8 md:grid-cols-[120px_1fr_1fr] md:items-start md:gap-4 md:py-10">
+          {STEPS.map((s, i) => (
+            <Reveal as="li" key={s.n} delay={i * 90} className="grid gap-3 py-8 md:grid-cols-[120px_1fr_1fr] md:items-start md:gap-4 md:py-10">
               <p className="eyebrow text-brand-700">{s.n}</p>
               <h3 className="display text-[clamp(36px,5vw,64px)]">{s.title}</h3>
               <p className="max-w-md text-base text-ink-soft md:pt-2">{s.body}</p>
-            </li>
+            </Reveal>
           ))}
         </ol>
       </section>
 
-      {/* countries */}
-      <section id="countries" className="scroll-mt-20 bg-night text-paper">
-        <div className="mx-auto max-w-[1200px] px-5 py-24">
-          <SectionHead light eyebrow="Countries" title={<>Pay them in<br /><span className="text-brand-500">their money.</span></>} />
-          <p className="mt-8 max-w-lg text-paper/80">
-            Write the cheque for the country your recipient lives in. They see the amount in their own currency, and
-            can cash out to USDC on Stellar today.
-          </p>
-          <div className="mt-12 grid gap-5 md:grid-cols-3">
-            {COUNTRIES.map((c) => (
-              <article key={c.code} className="flex flex-col rounded-[20px] border border-sage/60 bg-night-800 p-6">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <p className="eyebrow text-moss">{c.currency}</p>
-                    <h3 className="display mt-3 text-[34px] whitespace-nowrap">{c.name}</h3>
-                  </div>
-                  <span className="display grid h-14 w-14 place-items-center rounded-full bg-brand-500 text-[30px] text-night">
+      {/* countries — built to scale from three corridors to dozens */}
+      <section id="countries" className="scroll-mt-20 overflow-hidden bg-night text-paper">
+        <div className="mx-auto max-w-[1200px] px-5 pb-16 pt-24">
+          <SectionHead light n="02" eyebrow="Countries" title={<>Pay them in<br /><span className="text-brand-500">their money.</span></>} />
+          <Reveal delay={120}>
+            <p className="mt-8 max-w-lg text-paper/80">
+              Write the cheque for the country your recipient lives in. They see the amount in their own currency, and
+              can cash out to USDC on Stellar today.
+            </p>
+          </Reveal>
+        </div>
+
+        {/* ticker: one pill per corridor, live first, roadmap behind it. Scales to any count. */}
+        <Reveal delay={200}>
+          <div
+            aria-hidden
+            className="overflow-hidden py-2 [mask-image:linear-gradient(to_right,transparent,black_10%,black_90%,transparent)]"
+          >
+            <div className="marquee-track">
+              {[...LIVE_COUNTRIES, ...COMING_COUNTRIES, ...LIVE_COUNTRIES, ...COMING_COUNTRIES].map((c, i) => {
+                const live = 'code' in c;
+                return (
+                  <span
+                    key={`${c.name}-${i}`}
+                    className={`mr-3 inline-flex shrink-0 items-center gap-3 rounded-full border py-2.5 pl-4 pr-5 ${
+                      live ? 'border-brand-500/70 bg-night-800' : 'border-sage/40 bg-transparent opacity-70'
+                    }`}
+                  >
+                    <span className="text-lg" aria-hidden>{c.flag}</span>
+                    <span className="display text-[17px] !leading-none">{c.name}</span>
+                    <span className={`text-[11px] font-medium uppercase tracking-[.18em] ${live ? 'text-brand-500' : 'text-moss'}`}>
+                      {c.currency}
+                    </span>
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+        </Reveal>
+
+        {/* live corridors: one row each, so new countries are one array entry away */}
+        <div className="mx-auto max-w-[1200px] px-5 pb-24 pt-10">
+          <Reveal>
+            <ul className="divide-y divide-sage/50 border-y border-sage/50">
+              {LIVE_COUNTRIES.map((c) => (
+                <li key={c.code} className="grid gap-x-6 gap-y-3 py-7 sm:grid-cols-[auto_1fr_auto] sm:items-center">
+                  <span className="display grid h-16 w-16 place-items-center rounded-full bg-night-800 text-[30px] !leading-none" aria-hidden>
                     {c.symbol}
                   </span>
-                </div>
-                <p className="mt-5 text-sm text-paper/70">Per cheque</p>
-                <p className="display text-[26px] !leading-none">{c.range}</p>
-                <ul className="mt-6 space-y-3 border-t border-sage/50 pt-5 text-sm">
-                  <li className="flex items-start gap-3">
-                    <Wallet className="mt-0.5 h-4 w-4 shrink-0 text-brand-500" />
-                    <span>
-                      USDC wallet on Stellar
-                      <span className="ml-2 rounded-full bg-brand-500 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-night">Live</span>
+                  <div className="min-w-0">
+                    <h3 className="display text-[clamp(28px,4vw,44px)]">{c.name}</h3>
+                    <p className="mt-1 text-sm text-paper/70">
+                      <span className="font-medium text-paper">{c.currency}</span> · cash out to {c.local.toLowerCase()}
+                      <span className="text-paper/50"> — {c.note}</span>
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="inline-flex items-center gap-2 rounded-full bg-brand-500 px-3 py-1 text-[11px] font-semibold uppercase tracking-[.14em] text-night">
+                      <Wallet className="h-3.5 w-3.5" /> USDC wallet · Live
                     </span>
-                  </li>
-                  <li className="flex items-start gap-3 text-paper/80">
-                    {c.code === 'GH' ? (
-                      <Smartphone className="mt-0.5 h-4 w-4 shrink-0 text-river" />
-                    ) : (
-                      <Landmark className="mt-0.5 h-4 w-4 shrink-0 text-river" />
-                    )}
-                    <span>
-                      {c.local} <span className="text-paper/50">· {c.note}</span>
-                      <span className="ml-2 rounded-full border border-paper/40 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-paper/80">Soon</span>
+                    <span className="inline-flex items-center gap-2 rounded-full border border-paper/40 px-3 py-1 text-[11px] font-semibold uppercase tracking-[.14em] text-paper/80">
+                      {c.local} · Soon
                     </span>
-                  </li>
-                </ul>
-              </article>
-            ))}
-          </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </Reveal>
+          <Reveal delay={120}>
+            <p className="mt-8 flex items-center gap-3 text-sm text-paper/70">
+              <span className="inline-block h-2 w-2 shrink-0 animate-pulse rounded-full bg-brand-500" aria-hidden />
+              New corridors land every month — {COMING_COUNTRIES[0].name}, {COMING_COUNTRIES[1].name} and
+              {' '}{COMING_COUNTRIES[2].name} are next in line.
+            </p>
+          </Reveal>
         </div>
       </section>
 
       {/* why */}
       <section id="why" className="mx-auto max-w-[1200px] scroll-mt-20 px-5 py-28">
-        <SectionHead eyebrow="Why cheques" title={<>The simplest way<br />to send it home.</>} />
+        <SectionHead n="03" eyebrow="Why cheques" title={<>The simplest way<br />to send it home.</>} />
         <div className="mt-14 grid gap-px overflow-hidden rounded-[20px] border border-sage/50 bg-sage/50 sm:grid-cols-2 lg:grid-cols-3">
-          {FEATURES.map((f) => (
-            <div key={f.title} className="bg-paper p-7">
+          {FEATURES.map((f, i) => (
+            <Reveal key={f.title} delay={(i % 3) * 90} className="bg-paper p-7">
               <span className="grid h-11 w-11 place-items-center rounded-full bg-night text-brand-500">
                 <f.icon className="h-5 w-5" />
               </span>
               <h3 className="display mt-6 text-[30px] !leading-[.95]">{f.title}</h3>
               <p className="mt-3 text-sm text-ink-soft">{f.body}</p>
-            </div>
+            </Reveal>
           ))}
         </div>
       </section>
@@ -291,7 +315,7 @@ export default function Home() {
         <div className="mx-auto max-w-[1200px] px-5 py-24">
           <div className="grid items-center gap-12 md:grid-cols-[1.2fr_1fr]">
             <div>
-              <p className="eyebrow border-b border-sage pb-4 text-brand-500">Escrow</p>
+              <p className="eyebrow border-b border-sage pb-4 text-brand-500">04 · Escrow</p>
               <h2 className="display mt-8 text-[clamp(44px,8vw,101px)]">
                 Not claimed?
                 <br />
@@ -336,7 +360,7 @@ export default function Home() {
       {/* pricing */}
       <section id="pricing" className="mx-auto max-w-[1200px] scroll-mt-20 px-5 py-28">
         <div className="grid items-center gap-12 md:grid-cols-2">
-          <SectionHead eyebrow="Pricing" title={<>One flat fee.<br />No surprises.</>} />
+          <SectionHead n="05" eyebrow="Pricing" title={<>One flat fee.<br />No surprises.</>} />
           <div className="card p-8">
             <p className="display text-[clamp(72px,12vw,120px)] !leading-none">1%</p>
             <p className="mt-2 text-sm text-ink-soft">of the cheque amount, shown before you issue it.</p>
@@ -361,7 +385,7 @@ export default function Home() {
 
       {/* faq */}
       <section id="faq" className="mx-auto max-w-[900px] scroll-mt-20 px-5 pb-28">
-        <SectionHead eyebrow="FAQ" title="Questions." />
+        <SectionHead n="06" eyebrow="FAQ" title="Questions." />
         <div className="mt-12 divide-y divide-sage/50 border-y border-sage/50">
           {FAQ.map((f) => (
             <details key={f.q} className="group py-5">
@@ -410,7 +434,7 @@ export default function Home() {
         </div>
         <div className="border-t border-sage/40">
           <div className="mx-auto flex max-w-[1200px] flex-wrap items-center justify-between gap-3 px-5 py-5">
-            <span className="eyebrow !text-[11px] text-moss">Settled on Stellar</span>
+            <span className="eyebrow !text-[11px] text-moss">Cross-border digital cheques</span>
             <span className="eyebrow !text-[11px] text-moss">sencheq</span>
           </div>
         </div>
