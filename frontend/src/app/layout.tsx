@@ -9,7 +9,7 @@ const display = Anton({ subsets: ['latin'], weight: '400', variable: '--font-dis
 const mono = DM_Mono({ subsets: ['latin'], weight: ['400', '500'], variable: '--font-mono' });
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3100'),
+  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3100'),
   title: 'sencheq — if you can send a message, you can send money',
   description:
     'Write a cheque, share the link, and whoever holds it can claim. If you can send a message, you can send money.',
