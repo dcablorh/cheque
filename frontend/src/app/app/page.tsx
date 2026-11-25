@@ -588,10 +588,32 @@ function SharePanel({
   const needsWalletConnect = !!cheque.funderAddress && !address;
   const payeeEmail = detail?.payeeEmail ?? cheque.payeeEmail ?? null;
   const payout = detail?.payout ?? null;
-  const waText = url
+  const shareMsg = url
     ? `Hi ${cheque.payeeName.split(' ')[0]}, I've sent you a ${fmtMoney(cheque.amount, cheque.currency)} cheque. Open to claim: ${url}`
     : '';
-  const wa = `https://wa.me/?text=${encodeURIComponent(waText)}`;
+  const allShares = url
+    ? [
+        {
+          label: 'WhatsApp',
+          href: `https://wa.me/?text=${encodeURIComponent(shareMsg)}`,
+          icon: MessageCircle,
+        },
+        {
+          label: 'Telegram',
+          href: `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(
+            `I've sent you a ${fmtMoney(cheque.amount, cheque.currency)} cheque. Open to claim:`
+          )}`,
+          icon: Send,
+        },
+        {
+          label: 'Email',
+          href: `mailto:?subject=${encodeURIComponent('A cheque for you')}&body=${encodeURIComponent(shareMsg)}`,
+          icon: Mail,
+        },
+      ]
+    : [];
+  const primaryShare = allShares[0];
+  const otherShares = allShares.slice(1);
 
   async function copy() {
     if (!url) return;
@@ -706,9 +728,18 @@ function SharePanel({
                 </button>
               </div>
               {copyFailed && <p className="text-xs text-cedi">Could not copy automatically. Select the link above and copy it.</p>}
-              <a href={wa} target="_blank" rel="noreferrer" className="btn-primary w-full">
-                <MessageCircle className="h-4 w-4" /> Send on WhatsApp
-              </a>
+              {primaryShare && (
+                <a href={primaryShare.href} target="_blank" rel="noreferrer" className="btn-primary w-full">
+                  <primaryShare.icon className="h-4 w-4" /> Send on {primaryShare.label}
+                </a>
+              )}
+              <div className="grid grid-cols-2 gap-3">
+                {otherShares.map((s) => (
+                  <a key={s.label} href={s.href} target="_blank" rel="noreferrer" className="btn-ghost w-full">
+                    <s.icon className="h-4 w-4" /> {s.label}
+                  </a>
+                ))}
+              </div>
             </>
           ) : (
             <p className="rounded-[10px] bg-paper px-4 py-3 text-sm text-ink-soft">
