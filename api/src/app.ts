@@ -14,6 +14,7 @@ import {
   OtpService,
   EmailClient,
   normalizeEmail,
+  otpEmail,
 } from '@cheque/notify';
 import { createOutboxWorker } from './outbox-worker.js';
 import { buildChainHandlerFromEnv } from './chain-runtime.js';
@@ -216,11 +217,10 @@ ${params.text}
         ipAddress: request.ip,
         deviceFp: request.headers['x-device-fingerprint'] as string | undefined,
       });
-      // Send the OTP via Resend
+      // Send the OTP
       await emailClient.sendEmail({
         to: res.email,
-        subject: 'Your sencheq verification code',
-        text: `Your verification code is ${res.otp}. It expires in 5 minutes. Do not share it.`,
+        ...otpEmail({ code: res.otp, purpose: 'sign in to sencheq' }),
       });
       return { success: true, email: res.email, channel: res.channel, message: 'Verification code sent via email.' };
     } catch (err: unknown) {
