@@ -271,9 +271,25 @@ function Dashboard({ onSignOut }: { onSignOut: () => void }) {
     <main className="mx-auto max-w-4xl px-4 pb-20 pt-5 sm:px-5 sm:pt-6">
       <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
         <Link href="/" className="shrink-0"><Logo /></Link>
-        <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+        <div className="flex min-w-0 items-center justify-end gap-2.5">
           <WalletButton />
-          <span className="hidden max-w-[12rem] truncate text-sm text-ink-soft md:block">{s?.name ?? s?.email}</span>
+          {s && (
+            <div
+              className="flex min-w-0 items-center gap-2.5 rounded-full border border-sage/50 bg-paper py-1.5 pl-1.5 pr-4"
+              title={s.email}
+            >
+              <span
+                aria-hidden
+                className="display grid h-8 w-8 shrink-0 place-items-center rounded-full bg-night text-[15px] !leading-none text-brand-500"
+              >
+                {(s.name ?? s.email ?? '?').trim().charAt(0).toUpperCase()}
+              </span>
+              <span className="hidden min-w-0 flex-col leading-tight sm:flex">
+                <span className="truncate text-sm font-semibold text-ink">{s.name ?? 'Sender'}</span>
+                <span className="truncate text-[11px] text-ink-mute">{s.email}</span>
+              </span>
+            </div>
+          )}
           <button className="btn-ghost !px-3 !py-2.5" onClick={onSignOut} aria-label="Sign out" title="Sign out">
             <LogOut className="h-4 w-4" />
             <span className="hidden sm:inline">Sign out</span>

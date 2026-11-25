@@ -224,6 +224,16 @@ export function isDestinationAddress(chain: DestinationChain, v: string): boolea
   return isSolanaOwnerAddress(v);
 }
 
+/** Which network an address belongs to, by shape. Powers the claim page's auto-detect. */
+export function detectDestinationChain(v: string): DestinationChain | null {
+  const s = v.trim();
+  if (!s) return null;
+  if (isStellarAddress(s)) return 'stellar';
+  if (isEvmAddress(s)) return 'base';
+  if (isSolanaOwnerAddress(s)) return 'solana';
+  return null;
+}
+
 export function explorerTxUrl(
   chain: DestinationChain,
   txHash: string,
@@ -236,5 +246,6 @@ export function explorerTxUrl(
       ? `https://explorer.solana.com/tx/${txHash}`
       : `https://explorer.solana.com/tx/${txHash}?cluster=devnet`;
   }
-  return `https://stellar.expert/explorer/${mainnet ? 'public' : 'testnet'}/tx/${txHash}`;
+  // stellarchain.io serves testnet from a hostname prefix
+  return `${mainnet ? 'https://stellarchain.io' : 'https://testnet.stellarchain.io'}/tx/${txHash}`;
 }
