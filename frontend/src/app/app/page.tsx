@@ -39,6 +39,22 @@ const saveLink = (id: string, url: string) => {
   }
 };
 
+/**
+ * Recipient-facing share messages. One is picked at random when the share panel opens, so every
+ * cheque announcement reads a little different. Each takes (payee, sender, amount) and returns
+ * the message without the claim link — channels append the link themselves.
+ */
+const SHARE_LINES = [
+  (p: string, s: string, a: string) =>
+    `🎉 Hi ${p}! ${s} just sent you a cheque for ${a}. Open the link to claim it — no app, no sign-up, and you choose where the money goes.`,
+  (p: string, s: string, a: string) =>
+    `✉️ Good news, ${p} — a cheque for ${a} from ${s} is waiting for you. Claiming takes under a minute: open the link and pick where the money lands.`,
+  (p: string, s: string, a: string) =>
+    `💸 ${s} sent you ${a} by cheque. Open it whenever you're ready and choose where it goes — your wallet, your call.`,
+  (p: string, s: string, a: string) =>
+    `📮 Something good in the post today, ${p}: a ${a} cheque from ${s}. Tap the link, tell us where to send it, done.`,
+];
+
 /** prepare -> wallet signs -> submit, for a deposit ('create') or a cancel. */
 async function runWalletTx(
   id: string,
@@ -588,26 +604,31 @@ function SharePanel({
   const needsWalletConnect = !!cheque.funderAddress && !address;
   const payeeEmail = detail?.payeeEmail ?? cheque.payeeEmail ?? null;
   const payout = detail?.payout ?? null;
-  const shareMsg = url
-    ? `Hi ${cheque.payeeName.split(' ')[0]}, I've sent you a ${fmtMoney(cheque.amount, cheque.currency)} cheque. Open to claim: ${url}`
-    : '';
-  const allShares = url
+  const payeeFirst = cheque.payeeName.split(' ')[0];
+  const senderFirst = session.get()?.name?.trim().split(' ')[0] || 'Someone';
+  const amountLabel = fmtMoney(cheque.amount, cheque.currency);
+  // Picked once per mount; the panel only renders after `url` resolves, so no SSR mismatch.
+  const [shareLine] = useState(() => SHARE_LINES[Math.floor(Math.random() * SHARE_LINES.length)]);
+  const shareText = url ? shareLine(payeeFirst, senderFirst, amountLabel) : '';
+  const allShares = url && shareText
     ? [
         {
           label: 'WhatsApp',
-          href: `https://wa.me/?text=${encodeURIComponent(shareMsg)}`,
+          href: `https://wa.me/?text=${encodeURIComponent(`${shareText}\n${url}`)}`,
           icon: MessageCircle,
         },
         {
           label: 'Telegram',
           href: `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(
-            `I've sent you a ${fmtMoney(cheque.amount, cheque.currency)} cheque. Open to claim:`
+            `${shareText}\n`
           )}`,
           icon: Send,
         },
         {
           label: 'Email',
-          href: `mailto:?subject=${encodeURIComponent('A cheque for you')}&body=${encodeURIComponent(shareMsg)}`,
+          href: `mailto:?subject=${encodeURIComponent(`${amountLabel} cheque from ${senderFirst}`)}&body=${encodeURIComponent(
+            `${shareText}\n\n${url}\n\nSent with sencheq — if you can send a message, you can send money.`
+          )}`,
           icon: Mail,
         },
       ]
