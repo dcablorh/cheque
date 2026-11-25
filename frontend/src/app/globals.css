@@ -87,6 +87,8 @@ body {
   .animate-float,
   .animate-stamp,
   .animate-bob,
+  .animate-pulse-soft,
+  .animate-bounce-dot,
   .marquee-track {
     animation: none !important;
   }
