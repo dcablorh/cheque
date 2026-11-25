@@ -1,16 +1,56 @@
 import type { Metadata, Viewport } from 'next';
-import { Inter, Antonio, DM_Mono } from 'next/font/google';
+import { Inter, Inter_Tight, DM_Mono } from 'next/font/google';
 import './globals.css';
 import { WalletProviderWrapper } from '@/components/WalletProviderWrapper';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
-const display = Antonio({ subsets: ['latin'], weight: ['400', '700'], variable: '--font-display' });
+// Display face: heavy sentence-case headlines (the Wise-style look), same family feel as body Inter.
+const display = Inter_Tight({ subsets: ['latin'], weight: ['700', '800', '900'], variable: '--font-display' });
 const mono = DM_Mono({ subsets: ['latin'], weight: ['400', '500'], variable: '--font-mono' });
 
+/** Public origin, used for absolute OG asset URLs. */
+const APP_URL = (process.env.NEXT_PUBLIC_APP_URL || 'https://sencheq.com').replace(/\/+$/, '');
+const OG_VIDEO = `${APP_URL}/brand/cheq.mp4`;
+const OG_IMAGE = `${APP_URL}/brand/cheq-og.jpg`;
+// Poster frame from the brand video; crawlers that don't render og:video fall back to it.
+const OG_POSTER = `${APP_URL}/brand/cheq-poster.jpg`;
+
+const TITLE = 'sencheq — if you can send a message, you can send money';
+const DESCRIPTION =
+  'Write a cheque, share the link, and whoever holds it can claim. If you can send a message, you can send money. Settled on Stellar.';
+
 export const metadata: Metadata = {
-  title: 'sencheq — if you can send a message, you can send money',
-  description:
-    'Write a cheque, share the link, and whoever holds it can claim. If you can send a message, you can send money. Settled on Stellar.',
+  metadataBase: new URL(APP_URL),
+  title: TITLE,
+  description: DESCRIPTION,
+  applicationName: 'sencheq',
+  openGraph: {
+    type: 'website',
+    siteName: 'sencheq',
+    title: TITLE,
+    description: DESCRIPTION,
+    url: APP_URL,
+    images: [
+      { url: OG_IMAGE, width: 1200, height: 630, alt: 'Two people holding a sencheq cheque between the flags of Ghana and Nigeria' },
+      { url: OG_POSTER, width: 1280, height: 720, alt: 'Poster frame from the sencheq brand video' },
+    ],
+    videos: [{ url: OG_VIDEO, type: 'video/mp4', width: 1280, height: 720 }],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: TITLE,
+    description: DESCRIPTION,
+    images: [OG_IMAGE],
+  },
+  // Meta and LinkedIn only read the raw property tags, so mirror the video set here.
+  other: {
+    'og:video': OG_VIDEO,
+    'og:video:secure_url': OG_VIDEO,
+    'og:video:type': 'video/mp4',
+    'og:video:width': '1280',
+    'og:video:height': '720',
+    'og:video:alt': 'Two people holding a sencheq cheque between the flags of Ghana and Nigeria',
+  },
 };
 
 export const viewport: Viewport = { themeColor: '#122315', width: 'device-width', initialScale: 1 };

@@ -13,8 +13,16 @@ import {
   Zap,
 } from 'lucide-react';
 import { ChequePaper, CorridorMap, Logo, Patch } from '@/components/ui';
+import { GlobeOrbit } from '@/components/GlobeOrbit';
 
 const CHANNELS = ['WhatsApp', 'Telegram', 'Instagram', 'Messenger', 'iMessage', 'SMS', 'Email'];
+
+const NAV_LINKS = [
+  { href: '/#how', label: 'How it works' },
+  { href: '/#countries', label: 'Countries' },
+  { href: '/#pricing', label: 'Pricing' },
+  { href: '/#faq', label: 'FAQ' },
+];
 
 const STEPS = [
   {
@@ -102,6 +110,24 @@ const FEATURES = [
   },
 ];
 
+const SAFE = [
+  {
+    icon: Lock,
+    title: 'Held in escrow',
+    body: 'Your money is locked in an on-chain escrow the moment you issue the cheque.',
+  },
+  {
+    icon: ShieldCheck,
+    title: 'The link is the key',
+    body: 'Every cheque is a long random secret that cannot be guessed. Only whoever holds it can claim.',
+  },
+  {
+    icon: RotateCcw,
+    title: 'Nothing is lost',
+    body: 'Cancel any time before claiming starts, and expired cheques are refunded without you asking.',
+  },
+];
+
 const FAQ = [
   {
     q: 'Does my recipient need an account or an app?',
@@ -136,10 +162,11 @@ const FAQ = [
 function SectionHead({ eyebrow, title, light }: { eyebrow: string; title: React.ReactNode; light?: boolean }) {
   return (
     <div>
-      <p className={`eyebrow border-b pb-4 ${light ? 'border-sage text-brand-500' : 'border-sage/50 text-brand-700'}`}>
+      <p className={`flex items-center gap-2 text-sm font-semibold ${light ? 'text-brand-500' : 'text-brand-700'}`}>
+        <span aria-hidden className={`inline-block h-2 w-2 rounded-full ${light ? 'bg-brand-500' : 'bg-brand-600'}`} />
         {eyebrow}
       </p>
-      <h2 className="display mt-8 text-[clamp(44px,8vw,110px)]">{title}</h2>
+      <h2 className="display mt-4 max-w-3xl text-[clamp(34px,5.5vw,64px)]">{title}</h2>
     </div>
   );
 }
@@ -147,49 +174,60 @@ function SectionHead({ eyebrow, title, light }: { eyebrow: string; title: React.
 export default function Home() {
   return (
     <>
-      <nav className="sticky top-0 z-40 bg-night text-paper">
+      {/* nav — light and sticky, pill CTAs */}
+      <nav className="sticky top-0 z-40 border-b border-sage/40 bg-paper/95 backdrop-blur">
         <div className="mx-auto flex h-16 max-w-[1200px] items-center justify-between gap-4 px-5">
-          <Logo tone="light" />
-          <div className="flex items-center gap-3">
-            <Link href="/app" className="btn-primary !px-4 !py-2.5 focus-visible:ring-offset-night sm:!px-5">
+          <Logo tone="dark" />
+          <div className="hidden items-center gap-1 md:flex">
+            {NAV_LINKS.map((l) => (
+              <Link
+                key={l.href}
+                href={l.href}
+                className="rounded-full px-4 py-2 text-sm font-medium text-ink transition hover:bg-night/5"
+              >
+                {l.label}
+              </Link>
+            ))}
+          </div>
+          <div className="flex items-center gap-2">
+            <Link href="/app" className="btn-primary !px-5 focus-visible:ring-offset-paper">
               Write a cheque
             </Link>
           </div>
         </div>
       </nav>
 
-      {/* hero */}
-      <header className="relative overflow-hidden bg-night text-paper">
-        <div className="relative z-10 mx-auto max-w-[1200px] px-5 pb-[34vw] pt-16 text-center sm:pt-24 md:pb-72">
-          <h1 className="display mt-6 text-[clamp(56px,12vw,170px)] !leading-[.9] tracking-[-.02em]">
+      {/* hero — big sentence-case headline over the cheque calculator */}
+      <header className="relative overflow-hidden bg-paper">
+        <div className="relative z-10 mx-auto max-w-[1200px] px-5 pb-20 pt-14 text-center sm:pt-20">
+          <h1 className="display mx-auto max-w-5xl text-[clamp(44px,8vw,118px)]">
             <span className="block animate-rise [animation-delay:60ms]">If you can send a message,</span>
-            <span className="block animate-rise text-brand-500 [animation-delay:160ms]">you can send money.</span>
+            <span className="block animate-rise text-brand-700 [animation-delay:160ms]">you can send money.</span>
           </h1>
-          <p className="mx-auto mt-8 max-w-lg animate-rise text-base text-paper/80 [animation-delay:260ms]">
+          <p className="mx-auto mt-6 max-w-xl animate-rise text-lg text-ink-soft [animation-delay:260ms]">
             Cross-border digital cheques. Send the link on WhatsApp, Telegram or Instagram. Your recipient needs no
-            account and no app. They open it and decide where the money goes. Unclaimed cheques come straight back.
+            account and no app. Unclaimed cheques come straight back.
           </p>
-          <div className="mx-auto mt-8 flex w-full max-w-xs animate-rise flex-col gap-3 [animation-delay:340ms] sm:max-w-none sm:flex-row sm:items-center sm:justify-center">
-            <Link href="/app" className="btn-primary w-full px-9 py-4 focus-visible:ring-offset-night sm:w-auto">
+          <div className="mx-auto mt-10 flex w-full max-w-md animate-rise flex-col gap-3 [animation-delay:340ms] sm:max-w-none sm:flex-row sm:justify-center">
+            <Link href="/app" className="btn-primary w-full px-9 py-4 sm:w-auto">
               Write a cheque <ArrowRight className="h-4 w-4" />
             </Link>
-            <a
-              href="#how"
-              className="btn w-full border border-paper/60 px-9 py-4 text-paper hover:bg-paper/10 focus-visible:ring-offset-night sm:w-auto"
-            >
+            <a href="#how" className="btn-ghost w-full px-9 py-4 sm:w-auto">
               How it works
             </a>
           </div>
+          <div className="mt-6">
+            <GlobeOrbit />
+          </div>
         </div>
-        <CorridorMap className="pointer-events-none absolute inset-x-0 bottom-0 h-[34vw] min-h-[200px] w-full md:h-[300px]" />
       </header>
 
       {/* works with any messaging app */}
-      <section aria-label="Works with" className="border-b border-sage/40 bg-paper">
+      <section aria-label="Works with" className="border-y border-sage/40 bg-paper">
         <div className="mx-auto flex max-w-[1200px] flex-wrap items-center justify-center gap-x-5 gap-y-3 px-5 py-6 sm:gap-x-8">
-          <span className="eyebrow w-full text-center text-sage sm:w-auto">Send it on</span>
+          <span className="text-sm font-semibold text-ink-mute">Send it on</span>
           {CHANNELS.map((c) => (
-            <span key={c} className="display text-[18px] text-night/70 !leading-none sm:text-[22px]">
+            <span key={c} className="text-lg font-bold text-night/70 sm:text-xl">
               {c}
             </span>
           ))}
@@ -197,70 +235,97 @@ export default function Home() {
       </section>
 
       {/* cheque showcase */}
-      <section className="relative mx-auto max-w-[1200px] px-5 pb-28 pt-24">
+      <section className="mx-auto max-w-[1200px] px-5 pb-24 pt-20">
         <div className="relative mx-auto max-w-[760px]">
           <div className="-rotate-2">
             <ChequePaper currency="GHS" amountValue={500} date="12 Nov 2026" amount="₵500.00" payee="Kojo Mensah" from="Ama" note="For rent, thank you" code="CHQ-82F9K2" stamp="Paid" />
           </div>
-          <div className="absolute -bottom-9 left-4 z-10 rotate-[-4deg] bg-brand-500 px-4 py-2 text-xs font-medium uppercase tracking-[.18em] text-night">
+          <div className="absolute -bottom-9 left-4 z-10 rotate-[-4deg] rounded-full bg-brand-500 px-4 py-2 text-xs font-semibold uppercase tracking-[.14em] text-night">
             Held in escrow until claimed
           </div>
         </div>
       </section>
 
+      {/* trust band — big numbers over the corridor map */}
+      <section className="relative overflow-hidden bg-night text-paper">
+        <CorridorMap className="pointer-events-none absolute inset-x-0 bottom-0 h-[300px] w-full opacity-90" />
+        <div className="relative mx-auto max-w-[1200px] px-5 pb-40 pt-24">
+          <h2 className="display mx-auto max-w-3xl text-center text-[clamp(34px,5.5vw,64px)]">
+            Built to move money<br className="hidden sm:block" /> across borders, safely.
+          </h2>
+          <div className="mt-16 grid gap-10 text-center sm:grid-cols-3">
+            {[
+              { k: '~5s', v: 'to settle on Stellar' },
+              { k: '100%', v: 'returned if unclaimed' },
+              { k: '0', v: 'apps for the recipient' },
+            ].map((s) => (
+              <div key={s.v}>
+                <p className="display text-[clamp(56px,8vw,88px)] text-brand-500">{s.k}</p>
+                <p className="mt-2 text-sm font-medium text-paper/80">{s.v}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* how it works */}
-      <section id="how" className="mx-auto max-w-[1200px] scroll-mt-20 px-5 pb-28">
-        <SectionHead eyebrow="How it works" title={<>Four steps.<br />No sign-up for them.</>} />
-        <ol className="mt-14 divide-y divide-sage/50 border-y border-sage/50">
+      <section id="how" className="mx-auto max-w-[1200px] scroll-mt-20 px-5 py-24">
+        <SectionHead eyebrow="How it works" title={<>Four steps. No sign-up for them.</>} />
+        <ol className="mt-12 grid gap-5 md:grid-cols-2">
           {STEPS.map((s) => (
-            <li key={s.n} className="grid gap-3 py-8 md:grid-cols-[120px_1fr_1fr] md:items-start md:gap-4 md:py-10">
-              <p className="eyebrow text-brand-700">{s.n}</p>
-              <h3 className="display text-[clamp(36px,5vw,64px)]">{s.title}</h3>
-              <p className="max-w-md text-base text-ink-soft md:pt-2">{s.body}</p>
+            <li key={s.n} className="rounded-[24px] border border-sage/60 bg-[#faf7f1] p-7">
+              <span className="grid h-11 w-11 place-items-center rounded-full bg-brand-500 text-sm font-bold text-night">
+                {s.n}
+              </span>
+              <h3 className="display mt-5 text-[28px]">{s.title}</h3>
+              <p className="mt-2 max-w-md text-ink-soft">{s.body}</p>
             </li>
           ))}
         </ol>
       </section>
 
       {/* countries */}
-      <section id="countries" className="scroll-mt-20 bg-night text-paper">
+      <section id="countries" className="scroll-mt-20 bg-paper">
         <div className="mx-auto max-w-[1200px] px-5 py-24">
-          <SectionHead light eyebrow="Countries" title={<>Pay them in<br /><span className="text-brand-500">their money.</span></>} />
-          <p className="mt-8 max-w-lg text-paper/80">
+          <SectionHead
+            eyebrow="Countries"
+            title={<>Pay them in their money.</>}
+          />
+          <p className="mt-5 max-w-lg text-ink-soft">
             Write the cheque for the country your recipient lives in. They see the amount in their own currency, and
             can cash out to USDC on Stellar today.
           </p>
           <div className="mt-12 grid gap-5 md:grid-cols-3">
             {COUNTRIES.map((c) => (
-              <article key={c.code} className="flex flex-col rounded-[20px] border border-sage/60 bg-night-800 p-6">
+              <article key={c.code} className="flex flex-col rounded-[24px] border border-sage/60 bg-[#faf7f1] p-7">
                 <div className="flex items-start justify-between">
                   <div>
-                    <p className="eyebrow text-moss">{c.currency}</p>
-                    <h3 className="display mt-3 text-[34px] whitespace-nowrap">{c.name}</h3>
+                    <p className="text-sm font-semibold text-ink-mute">{c.currency}</p>
+                    <h3 className="display mt-2 text-[34px] whitespace-nowrap">{c.name}</h3>
                   </div>
                   <span className="display grid h-14 w-14 place-items-center rounded-full bg-brand-500 text-[30px] text-night">
                     {c.symbol}
                   </span>
                 </div>
-                <p className="mt-5 text-sm text-paper/70">Per cheque</p>
-                <p className="display text-[26px] !leading-none">{c.range}</p>
+                <p className="mt-6 text-sm text-ink-mute">Per cheque</p>
+                <p className="mt-1 text-xl font-bold tabular-nums">{c.range}</p>
                 <ul className="mt-6 space-y-3 border-t border-sage/50 pt-5 text-sm">
                   <li className="flex items-start gap-3">
-                    <Wallet className="mt-0.5 h-4 w-4 shrink-0 text-brand-500" />
+                    <Wallet className="mt-0.5 h-4 w-4 shrink-0 text-brand-700" />
                     <span>
                       USDC wallet on Stellar
                       <span className="ml-2 rounded-full bg-brand-500 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-night">Live</span>
                     </span>
                   </li>
-                  <li className="flex items-start gap-3 text-paper/80">
+                  <li className="flex items-start gap-3 text-ink-soft">
                     {c.code === 'GH' ? (
-                      <Smartphone className="mt-0.5 h-4 w-4 shrink-0 text-river" />
+                      <Smartphone className="mt-0.5 h-4 w-4 shrink-0 text-ink-mute" />
                     ) : (
-                      <Landmark className="mt-0.5 h-4 w-4 shrink-0 text-river" />
+                      <Landmark className="mt-0.5 h-4 w-4 shrink-0 text-ink-mute" />
                     )}
                     <span>
-                      {c.local} <span className="text-paper/50">· {c.note}</span>
-                      <span className="ml-2 rounded-full border border-paper/40 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-paper/80">Soon</span>
+                      {c.local} <span className="text-ink-mute">· {c.note}</span>
+                      <span className="ml-2 rounded-full border border-sage px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-ink-soft">Soon</span>
                     </span>
                   </li>
                 </ul>
@@ -271,62 +336,56 @@ export default function Home() {
       </section>
 
       {/* why */}
-      <section id="why" className="mx-auto max-w-[1200px] scroll-mt-20 px-5 py-28">
-        <SectionHead eyebrow="Why cheques" title={<>The simplest way<br />to send it home.</>} />
-        <div className="mt-14 grid gap-px overflow-hidden rounded-[20px] border border-sage/50 bg-sage/50 sm:grid-cols-2 lg:grid-cols-3">
+      <section id="why" className="mx-auto max-w-[1200px] scroll-mt-20 px-5 py-24">
+        <SectionHead eyebrow="Why cheques" title={<>The simplest way to send it home.</>} />
+        <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {FEATURES.map((f) => (
-            <div key={f.title} className="bg-paper p-7">
+            <div key={f.title} className="rounded-[24px] border border-sage/60 bg-[#faf7f1] p-7">
               <span className="grid h-11 w-11 place-items-center rounded-full bg-night text-brand-500">
                 <f.icon className="h-5 w-5" />
               </span>
-              <h3 className="display mt-6 text-[30px] !leading-[.95]">{f.title}</h3>
-              <p className="mt-3 text-sm text-ink-soft">{f.body}</p>
+              <h3 className="display mt-5 text-[26px]">{f.title}</h3>
+              <p className="mt-2 text-sm text-ink-soft">{f.body}</p>
             </div>
           ))}
         </div>
       </section>
 
-      {/* escrow */}
-      <section id="escrow" className="scroll-mt-20 bg-night text-paper">
-        <div className="mx-auto max-w-[1200px] px-5 py-24">
+      {/* safe at every step */}
+      <section id="escrow" className="scroll-mt-20 px-5 py-6">
+        <div className="mx-auto max-w-[1200px] rounded-[32px] bg-brand-100 p-8 sm:p-14">
           <div className="grid items-center gap-12 md:grid-cols-[1.2fr_1fr]">
             <div>
-              <p className="eyebrow border-b border-sage pb-4 text-brand-500">Escrow</p>
-              <h2 className="display mt-8 text-[clamp(44px,8vw,101px)]">
+              <p className="flex items-center gap-2 text-sm font-semibold text-brand-700">
+                <span aria-hidden className="inline-block h-2 w-2 rounded-full bg-brand-600" />
+                Safe at every step
+              </p>
+              <h2 className="display mt-4 text-[clamp(34px,5.5vw,64px)]">
                 Not claimed?
                 <br />
-                <span className="text-brand-500">It comes back.</span>
+                It comes back.
               </h2>
-              <p className="mt-6 max-w-md text-paper/80">
+              <p className="mt-5 max-w-md text-ink-soft">
                 Every cheque has an expiry. Until it is claimed, the money sits in an on-chain escrow. If nobody claims
                 it, the escrow returns it to you automatically.
               </p>
-              <ul className="mt-6 space-y-3 text-sm text-paper/90">
-                {[
-                  'Funds are locked the moment you issue the cheque',
-                  'Cancel any time before the recipient starts claiming',
-                  'Expired cheques are refunded without you asking',
-                ].map((t) => (
-                  <li key={t} className="flex items-start gap-3">
-                    <Check className="mt-0.5 h-4 w-4 shrink-0 text-brand-500" /> {t}
-                  </li>
-                ))}
-              </ul>
+              <Link href="/app" className="btn-primary mt-8">
+                Write a cheque <ArrowRight className="h-4 w-4" />
+              </Link>
             </div>
             <div className="flex flex-wrap justify-center gap-6">
               <Patch kind="chat" label="Send in any chat app" rotate={-8} size={150} />
               <Patch kind="globe" label="Across borders" rotate={8} size={150} />
             </div>
           </div>
-          <div className="mt-20 grid divide-y divide-sage/60 border-y border-sage/60 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
-            {[
-              { k: '~5s', v: 'to settle on Stellar' },
-              { k: '100%', v: 'returned if unclaimed' },
-              { k: '0', v: 'apps for the recipient' },
-            ].map((s) => (
-              <div key={s.v} className="px-6 py-10">
-                <p className="display text-[clamp(64px,10vw,96px)] text-paper">{s.k}</p>
-                <p className="eyebrow mt-3 text-moss">{s.v}</p>
+          <div className="mt-12 grid gap-5 sm:grid-cols-3">
+            {SAFE.map((s) => (
+              <div key={s.title} className="rounded-[24px] bg-paper p-6">
+                <span className="grid h-11 w-11 place-items-center rounded-full bg-night text-brand-500">
+                  <s.icon className="h-5 w-5" />
+                </span>
+                <h3 className="display mt-4 text-[22px]">{s.title}</h3>
+                <p className="mt-2 text-sm text-ink-soft">{s.body}</p>
               </div>
             ))}
           </div>
@@ -334,11 +393,11 @@ export default function Home() {
       </section>
 
       {/* pricing */}
-      <section id="pricing" className="mx-auto max-w-[1200px] scroll-mt-20 px-5 py-28">
+      <section id="pricing" className="mx-auto max-w-[1200px] scroll-mt-20 px-5 py-24">
         <div className="grid items-center gap-12 md:grid-cols-2">
-          <SectionHead eyebrow="Pricing" title={<>One flat fee.<br />No surprises.</>} />
+          <SectionHead eyebrow="Pricing" title={<>One flat fee. No surprises.</>} />
           <div className="card p-8">
-            <p className="display text-[clamp(72px,12vw,120px)] !leading-none">1%</p>
+            <p className="display text-[clamp(64px,10vw,110px)]">1%</p>
             <p className="mt-2 text-sm text-ink-soft">of the cheque amount, shown before you issue it.</p>
             <ul className="mt-6 space-y-3 border-t border-sage/50 pt-6 text-sm">
               {[
@@ -360,12 +419,12 @@ export default function Home() {
       </section>
 
       {/* faq */}
-      <section id="faq" className="mx-auto max-w-[900px] scroll-mt-20 px-5 pb-28">
+      <section id="faq" className="mx-auto max-w-[900px] scroll-mt-20 px-5 pb-24">
         <SectionHead eyebrow="FAQ" title="Questions." />
-        <div className="mt-12 divide-y divide-sage/50 border-y border-sage/50">
+        <div className="mt-10 divide-y divide-sage/50 border-y border-sage/50">
           {FAQ.map((f) => (
             <details key={f.q} className="group py-5">
-              <summary className="flex cursor-pointer list-none items-center justify-between gap-6 text-left text-lg font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-night [&::-webkit-details-marker]:hidden">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-6 text-left text-lg font-semibold focus:outline-none focus-visible:ring-2 focus-visible:ring-night [&::-webkit-details-marker]:hidden">
                 {f.q}
                 <Plus className="h-5 w-5 shrink-0 transition group-open:rotate-45" />
               </summary>
@@ -378,12 +437,10 @@ export default function Home() {
       {/* final CTA */}
       <section id="start" className="bg-brand-500 text-night">
         <div className="mx-auto max-w-[1200px] px-5 py-24 text-center">
-          <h2 className="display text-[clamp(52px,11vw,137px)]">
-            Write your
-            <br />
-            first cheque.
+          <h2 className="display mx-auto max-w-4xl text-[clamp(44px,8vw,110px)]">
+            Write your first cheque.
           </h2>
-          <p className="mx-auto mt-6 max-w-sm">It takes under a minute. If you can send a message, you can send a cheque.</p>
+          <p className="mx-auto mt-5 max-w-md text-lg">It takes under a minute. If you can send a message, you can send a cheque.</p>
           <Link
             href="/app"
             className="btn mt-8 bg-night px-10 py-4 text-paper hover:bg-night-800 focus-visible:ring-offset-brand-500"
@@ -393,8 +450,9 @@ export default function Home() {
         </div>
       </section>
 
+      {/* footer */}
       <footer className="bg-night text-paper">
-        <div className="mx-auto grid max-w-[1200px] gap-10 px-5 py-12 md:grid-cols-[1.4fr_1fr]">
+        <div className="mx-auto grid max-w-[1200px] gap-10 px-5 py-14 md:grid-cols-[1.4fr_1fr_1fr]">
           <div>
             <Logo tone="light" />
             <p className="mt-4 max-w-xs text-sm text-paper/70">
@@ -402,16 +460,26 @@ export default function Home() {
             </p>
           </div>
           <div>
-            <p className="eyebrow text-moss">Get started</p>
+            <p className="text-sm font-semibold text-paper">Get started</p>
             <ul className="mt-4 space-y-2 text-sm">
               <li><Link href="/app" className="text-paper/80 transition hover:text-brand-500">Write a cheque</Link></li>
+              <li><Link href="/#how" className="text-paper/80 transition hover:text-brand-500">How it works</Link></li>
+              <li><Link href="/#pricing" className="text-paper/80 transition hover:text-brand-500">Pricing</Link></li>
+            </ul>
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-paper">Learn more</p>
+            <ul className="mt-4 space-y-2 text-sm">
+              <li><Link href="/#countries" className="text-paper/80 transition hover:text-brand-500">Countries</Link></li>
+              <li><Link href="/#escrow" className="text-paper/80 transition hover:text-brand-500">Safety &amp; escrow</Link></li>
+              <li><Link href="/#faq" className="text-paper/80 transition hover:text-brand-500">FAQ</Link></li>
             </ul>
           </div>
         </div>
         <div className="border-t border-sage/40">
           <div className="mx-auto flex max-w-[1200px] flex-wrap items-center justify-between gap-3 px-5 py-5">
-            <span className="eyebrow !text-[11px] text-moss">Settled on Stellar</span>
-            <span className="eyebrow !text-[11px] text-moss">sencheq</span>
+            <span className="text-xs font-medium uppercase tracking-[.18em] text-paper/50">Settled on Stellar</span>
+            <span className="text-xs font-medium uppercase tracking-[.18em] text-paper/50">sencheq</span>
           </div>
         </div>
       </footer>
