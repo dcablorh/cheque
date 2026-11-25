@@ -67,12 +67,12 @@ export function DepositCard(props: {
       </div>
 
       <div className="flex items-center gap-2">
-        <div className="flex-1 rounded-[10px] border border-sage/60 bg-white px-3 py-2">
+        <div className="flex-1 rounded-[10px] border border-sage/60 bg-[#faf7f1] px-3 py-2">
           <p className="text-[10px] uppercase tracking-wider text-ink-mute">Cheque ({cur})</p>
           <p className="font-medium tabular-nums">{fmtMoney(amount, cur)}</p>
         </div>
         <ArrowLeftRight className="h-4 w-4 shrink-0 text-ink-mute" aria-hidden />
-        <label className="flex-1 rounded-[10px] border border-sage/60 bg-white px-3 py-2 focus-within:border-night">
+        <label className="flex-1 rounded-[10px] border border-sage/60 bg-[#faf7f1] px-3 py-2 focus-within:border-night">
           <span className="block text-[10px] uppercase tracking-wider text-ink-mute">USDC</span>
           <input
             className="w-full bg-transparent font-medium tabular-nums outline-none"

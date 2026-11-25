@@ -331,7 +331,7 @@ export function ChequePaper(props: {
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
             <span className="text-[13px] font-bold">{currency}</span>
-            <div className="rounded-[4px] border-2 border-night bg-white/70 px-3 py-1.5">
+            <div className="rounded-[4px] border-2 border-night bg-paper/70 px-3 py-1.5">
               <p className={`display text-[38px] !leading-none tabular-nums`}>{props.amount}</p>
             </div>
           </div>

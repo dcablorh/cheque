@@ -20,7 +20,7 @@ import { SignaturePad } from '@/components/SignaturePad';
 import { DepositCard } from '@/components/DepositCard';
 import { WalletButton } from '@/components/WalletButton';
 import { shortAddress, useWallet } from '@/lib/wallet';
-import { ChequePaper, ErrorNote, Logo, Patch, Spinner, StatusPill } from '@/components/ui';
+import { ChequePaper, DotsLoader, ErrorNote, Logo, Patch, Skeleton, Spinner, StatusPill, SuccessNote } from '@/components/ui';
 import { COUNTRIES, COUNTRY_LIST, type CountryCode } from '@/lib/countries';
 
 const LINKS_KEY = 'cheque.links.v1';
@@ -306,7 +306,14 @@ function Dashboard({ onSignOut }: { onSignOut: () => void }) {
 
           <div className="mt-6 space-y-3">
             <ErrorNote>{error}</ErrorNote>
-            {cheques === null && !error && <div className="flex justify-center py-16"><Spinner className="h-6 w-6 text-brand-600" /></div>}
+            {cheques === null && !error && (
+              <div className="space-y-3" aria-busy="true" aria-label="Loading cheques">
+                {[0, 1, 2].map((i) => (
+                  <Skeleton key={i} className="h-[76px] w-full rounded-[20px]" />
+                ))}
+                <div className="flex justify-center pt-4"><DotsLoader /></div>
+              </div>
+            )}
             {cheques?.length === 0 && (
               <div className="card flex flex-col items-center px-6 py-14 text-center">
                 <div className="mb-4 grid h-14 w-14 place-items-center rounded-full bg-night text-brand-500"><Send className="h-6 w-6" /></div>
@@ -484,7 +491,7 @@ function NewCheque({
           <div className="flex gap-2">
             {EXPIRIES.map((x) => (
               <button type="button" key={x.h} onClick={() => setHours(x.h)} aria-pressed={hours === x.h}
-                className={`min-h-[40px] flex-1 rounded-[10px] border px-3 py-2 text-xs font-semibold transition ${hours === x.h ? 'border-night bg-night text-paper' : 'border-ink/15 bg-white text-ink-soft hover:border-ink/30'}`}>
+                className={`min-h-[40px] flex-1 rounded-[10px] border px-3 py-2 text-xs font-semibold transition ${hours === x.h ? 'border-night bg-night text-paper' : 'border-ink/15 bg-[#faf7f1] text-ink-soft hover:border-ink/30'}`}>
                 {x.label}
               </button>
             ))}
@@ -493,7 +500,7 @@ function NewCheque({
         </div>
         <div className="flex flex-col">
           <span className="label !mb-1 !text-[10px]">Your signature <span className="font-normal normal-case">(optional, appears on the cheque)</span></span>
-          <div className="relative flex-1 overflow-hidden rounded-[10px] border border-sage/60 bg-white">
+          <div className="relative flex-1 overflow-hidden rounded-[10px] border border-sage/60 bg-[#faf7f1]">
             <SignaturePad onChange={setSignature} className="h-full min-h-[190px]" hint="Draw your signature here" />
           </div>
         </div>
@@ -574,7 +581,7 @@ function SharePanel({
     };
   }, [id, cheque?.state]);
 
-  if (!cheque) return <div className="flex justify-center py-24"><Spinner className="h-6 w-6 text-brand-600" /></div>;
+  if (!cheque) return <div className="flex justify-center py-24"><DotsLoader /></div>;
 
   const live = cheque.state === 'ACTIVE';
   const walletMismatch = !!cheque.funderAddress && !!address && address !== cheque.funderAddress;
@@ -670,8 +677,8 @@ function SharePanel({
         </div>
       )}
       {cheque.state === 'PENDING_FUNDING' && !cheque.funderAddress && (
-        <p className="mt-4 flex items-center gap-2 rounded-[10px] border border-gold-400/50 bg-gold-300/30 px-4 py-3 text-sm text-[#5c4300]">
-          <Spinner /> Locking funds in escrow on Stellar. This usually takes a few seconds.
+        <p className="mt-4 flex items-center gap-2.5 rounded-[10px] border border-gold-400/50 bg-gold-300/30 px-4 py-3 text-sm text-[#5c4300]">
+          <DotsLoader className="shrink-0" /> Locking funds in escrow. This usually takes a few seconds.
         </p>
       )}
 
@@ -725,21 +732,22 @@ function SharePanel({
         </div>
       )}
       {cheque.state === 'SETTLED' && (
-        <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-[10px] border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-brand-900">
-          <span>
-            Delivered. {cheque.payeeName} has been paid{payout ? ` on ${destLabel}` : ''}.
-          </span>
+        <SuccessNote className="mt-5">
+          <span className="font-semibold">Delivered.</span> {cheque.payeeName} has been paid{payout ? ` on ${destLabel}` : ''}.
           {payout?.explorerUrl && (
-            <a
-              href={payout.explorerUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1 font-semibold text-brand-700 underline underline-offset-4"
-            >
-              View receipt <ExternalLink className="h-3.5 w-3.5" />
-            </a>
+            <>
+              {' '}
+              <a
+                href={payout.explorerUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 font-semibold text-brand-700 underline underline-offset-4"
+              >
+                View receipt <ExternalLink className="h-3.5 w-3.5" />
+              </a>
+            </>
           )}
-        </div>
+        </SuccessNote>
       )}
       <p className="mt-6 text-center text-xs text-ink-mute">
         <button onClick={onRefresh} className="inline-flex items-center gap-1 underline"><RefreshCw className="h-3 w-3" />Refresh</button>
