@@ -64,10 +64,13 @@ export const EnvSchema = z.object({
   SETTLEMENT_ACCOUNT_PUBLIC: z.string().length(56).optional(),
   FEE_SOURCE_PUBLIC: z.string().length(56).optional(),
 
-  // Pricing (placeholders until the SEP-38 quote service feeds cheques)
+  // Pricing (FX_GHS/NGN/USD are fallbacks; live rates come from FX_PROVIDER_URL)
   FX_GHS_PER_USDC: z.string().regex(/^\d+(\.\d{1,6})?$/).default('15.500000'),
   FX_NGN_PER_USDC: z.string().regex(/^\d+(\.\d{1,6})?$/).default('1550.000000'),
   FX_USD_PER_USDC: z.string().regex(/^\d+(\.\d{1,6})?$/).default('1.000000'),
+  // Live FX provider (ExchangeRate-API open endpoint; no key required).
+  FX_PROVIDER_URL: z.string().url().default('https://open.er-api.com/v6/latest/USD'),
+  FX_CACHE_TTL_SECONDS: z.coerce.number().int().min(30).max(86400).default(300),
   // Comma-separated corridor codes that accept new cheques (GH, NG, US).
   ENABLED_CORRIDORS: z.string().default('GH,NG,US'),
   FEE_BPS: z.coerce.number().int().min(0).max(1000).default(100),

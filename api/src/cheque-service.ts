@@ -38,6 +38,7 @@ import {
   type OutboxItem,
 } from '@cheque/core';
 import type { SenderAuthService } from '@cheque/notify';
+import { FxRateService } from './fx-rate.js';
 import { OtpService, EmailClient } from '@cheque/notify';
 import type { Env } from '@cheque/shared';
 import { logger } from '@cheque/shared';
@@ -74,18 +75,6 @@ const CHEQUE_COLS = `
   c.created_at AS "createdAt",
   c.updated_at AS "updatedAt"`;
 
-/** FX rate (currency per 1 USD) from env; USDC itself is the 1:1 peg. */
-function fxPerUsd(env: Env, currency: FiatCurrency): string {
-  switch (currency) {
-    case 'GHS':
-      return env.FX_GHS_PER_USDC;
-    case 'NGN':
-      return env.FX_NGN_PER_USDC;
-    case 'USD':
-      return env.FX_USD_PER_USDC;
-  }
-}
-
 function amountView(minor: number, currency: FiatCurrency) {
   return { amount: minorToDecimalString(minor), currency };
 }
@@ -108,6 +97,8 @@ export interface ChequeServiceDeps {
   settlementPublicKey?: string;
   /** Quotes and submits Stellar → Base/Solana CCTP transfers. */
   cctpAdapter?: CctpAdapter;
+  /** Live FX rates (env fallback when the provider is unreachable). */
+  fxRateService?: FxRateService;
 }
 
 function maskName(name: string): string {
@@ -434,6 +425,7 @@ async function hasUsdcTrustline(env: Env, address: string): Promise<boolean | 'u
 export function registerChequeRoutes(deps: ChequeServiceDeps): void {
   const { app, pool, env, authService } = deps;
   const enabledCorridors = parseEnabledCorridors(env.ENABLED_CORRIDORS);
+  const fx = deps.fxRateService ?? new FxRateService(env);
 
   const requireSender = (request: FastifyRequest, reply: FastifyReply): string | null => {
     const header = request.headers.authorization;
@@ -458,40 +450,51 @@ export function registerChequeRoutes(deps: ChequeServiceDeps): void {
     return res.rows[0] ?? reply.notFound('User not found');
   });
 
-  app.get('/config', async () => ({
-    network: env.STELLAR_NETWORK,
-    chainEnabled: deps.chainEnabled,
-    walletFunding: deps.chainEnabled && !!deps.chainClient,
-    cctpEnabled: !!deps.cctpAdapter && !!deps.settlementPublicKey,
-    feeBps: env.FEE_BPS,
-    usdc: { code: env.USDC_ASSET_CODE, issuer: env.USDC_ISSUER_ADDRESS },
-    horizonUrl: env.STELLAR_HORIZON_URL,
-    networkPassphrase: env.STELLAR_NETWORK_PASSPHRASE,
-    corridors: enabledCorridors.map((code) => {
-      const c = CORRIDORS[code];
-      return {
-        code: c.code,
-        name: c.name,
-        currency: c.currency,
-        minAmount: c.minAmount,
-        maxAmount: c.maxAmount,
-        dialCode: c.dialCode,
-        payoutMethods: c.payoutMethods,
-        /** Units of this currency per 1 USDC, for the deposit converter. */
-        perUsdc: fxPerUsd(env, c.currency),
-        minAmountUsdc: minorToDecimalString(
-          convertStroopsToFiatMinor(MIN_STROOPS, fxPerUsd(env, c.currency), 'ROUND_UP')
-        ),
-      };
-    }),
-    // Legacy Ghana-only fields, kept for existing clients.
-    fxGhsPerUsdc: env.FX_GHS_PER_USDC,
-    minAmountGhs: minorToDecimalString(
-      convertStroopsToFiatMinor(MIN_STROOPS, env.FX_GHS_PER_USDC, 'ROUND_UP')
-    ),
-    maxAmountGhs: '1000000.00',
-    momoPayouts: false,
-  }));
+  app.get('/config', async () => {
+    const corridors = await Promise.all(
+      enabledCorridors.map(async (code) => {
+        const c = CORRIDORS[code];
+        const quote = await fx.getQuote(c.currency);
+        return {
+          code: c.code,
+          name: c.name,
+          currency: c.currency,
+          minAmount: c.minAmount,
+          maxAmount: c.maxAmount,
+          dialCode: c.dialCode,
+          payoutMethods: c.payoutMethods,
+          /** Units of this currency per 1 USDC, for the deposit converter. */
+          perUsdc: quote.rate,
+          fxSource: quote.source,
+          fxUpdatedAt: quote.updatedAt.toISOString(),
+          minAmountUsdc: minorToDecimalString(
+            convertStroopsToFiatMinor(MIN_STROOPS, quote.rate, 'ROUND_UP')
+          ),
+        };
+      })
+    );
+    const ghsQuote = await fx.getQuote('GHS');
+    return {
+      network: env.STELLAR_NETWORK,
+      chainEnabled: deps.chainEnabled,
+      walletFunding: deps.chainEnabled && !!deps.chainClient,
+      cctpEnabled: !!deps.cctpAdapter && !!deps.settlementPublicKey,
+      feeBps: env.FEE_BPS,
+      usdc: { code: env.USDC_ASSET_CODE, issuer: env.USDC_ISSUER_ADDRESS },
+      horizonUrl: env.STELLAR_HORIZON_URL,
+      networkPassphrase: env.STELLAR_NETWORK_PASSPHRASE,
+      corridors,
+      // Legacy Ghana-only fields, kept for existing clients.
+      fxGhsPerUsdc: ghsQuote.rate,
+      fxSource: ghsQuote.source,
+      fxUpdatedAt: ghsQuote.updatedAt.toISOString(),
+      minAmountGhs: minorToDecimalString(
+        convertStroopsToFiatMinor(MIN_STROOPS, ghsQuote.rate, 'ROUND_UP')
+      ),
+      maxAmountGhs: '1000000.00',
+      momoPayouts: false,
+    };
+  });
 
   app.post('/cheques', async (request, reply) => {
     const userId = requireSender(request, reply);
@@ -518,7 +521,7 @@ export function registerChequeRoutes(deps: ChequeServiceDeps): void {
 
     const face = decimalToMinor(amount);
     const fee = Math.floor((face * env.FEE_BPS) / 10_000);
-    const rate = fxPerUsd(env, currency);
+    const { rate } = await fx.getQuote(currency);
     const stroops = quantizeStroopsToSixDecimals(convertFiatMinorToStroops(face, rate));
     if (stroops < MIN_STROOPS) {
       const minFace = convertStroopsToFiatMinor(MIN_STROOPS, rate, 'ROUND_UP');

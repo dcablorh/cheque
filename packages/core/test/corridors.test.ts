@@ -58,11 +58,14 @@ describe('payee phone per corridor', () => {
 
 describe('face amount limits', () => {
   it('enforces the corridor min and max', () => {
-    expect(validateFaceAmount(CORRIDORS.GH, 4.99)).toMatch(/Minimum GHS/);
+    expect(validateFaceAmount(CORRIDORS.GH, 1.49)).toMatch(/Minimum GHS/);
+    expect(validateFaceAmount(CORRIDORS.GH, 1.5)).toBeNull();
     expect(validateFaceAmount(CORRIDORS.GH, 2000)).toBeNull();
-    expect(validateFaceAmount(CORRIDORS.GH, 2000.01)).toMatch(/Maximum GHS/);
-    expect(validateFaceAmount(CORRIDORS.NG, 1999)).toMatch(/Minimum NGN/);
+    expect(validateFaceAmount(CORRIDORS.GH, 1_000_000)).toBeNull();
+    expect(validateFaceAmount(CORRIDORS.GH, 1_000_000.01)).toMatch(/Maximum GHS/);
+    expect(validateFaceAmount(CORRIDORS.NG, 1.49)).toMatch(/Minimum NGN/);
     expect(validateFaceAmount(CORRIDORS.NG, 150_000)).toBeNull();
+    expect(validateFaceAmount(CORRIDORS.NG, 1_000_000.01)).toMatch(/Maximum NGN/);
   });
 });
 

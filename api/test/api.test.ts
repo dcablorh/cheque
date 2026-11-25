@@ -176,7 +176,7 @@ describe('Apps/API Authentication & Webhooks Integration Tests', () => {
 
       const send = await app.inject({
         method: 'POST',
-        url: `/claim/${rawToken}/otp/send`,
+        url: `/api/claim/${rawToken}/otp/send`,
         payload: {},
       });
       expect(send.statusCode).toBe(200);
@@ -184,7 +184,7 @@ describe('Apps/API Authentication & Webhooks Integration Tests', () => {
 
       const redeem = await app.inject({
         method: 'POST',
-        url: `/claim/${rawToken}/redeem`,
+        url: `/api/claim/${rawToken}/redeem`,
         payload: redeemPayload(),
       });
       // Must not demand email verification; this cheque is not yet funded.
@@ -198,7 +198,7 @@ describe('Apps/API Authentication & Webhooks Integration Tests', () => {
 
       const redeem = await app.inject({
         method: 'POST',
-        url: `/claim/${rawToken}/redeem`,
+        url: `/api/claim/${rawToken}/redeem`,
         payload: redeemPayload(),
       });
       expect(redeem.statusCode).toBe(401);
@@ -212,7 +212,7 @@ describe('Apps/API Authentication & Webhooks Integration Tests', () => {
 
       const send = await app.inject({
         method: 'POST',
-        url: `/claim/${rawToken}/otp/send`,
+        url: `/api/claim/${rawToken}/otp/send`,
         payload: {},
       });
       expect(send.statusCode).toBe(200);
@@ -232,7 +232,7 @@ describe('Apps/API Authentication & Webhooks Integration Tests', () => {
       for (let left = 4; left >= 1; left--) {
         const fail = await app.inject({
           method: 'POST',
-          url: `/claim/${rawToken}/otp/verify`,
+          url: `/api/claim/${rawToken}/otp/verify`,
           payload: { otp: wrong },
         });
         expect(fail.statusCode).toBe(401);
@@ -240,7 +240,7 @@ describe('Apps/API Authentication & Webhooks Integration Tests', () => {
       }
       const locked = await app.inject({
         method: 'POST',
-        url: `/claim/${rawToken}/otp/verify`,
+        url: `/api/claim/${rawToken}/otp/verify`,
         payload: { otp: wrong },
       });
       expect(locked.statusCode).toBe(401);
@@ -248,7 +248,7 @@ describe('Apps/API Authentication & Webhooks Integration Tests', () => {
 
       const tooLate = await app.inject({
         method: 'POST',
-        url: `/claim/${rawToken}/otp/verify`,
+        url: `/api/claim/${rawToken}/otp/verify`,
         payload: { otp },
       });
       expect(tooLate.statusCode).toBe(401);
@@ -262,7 +262,7 @@ describe('Apps/API Authentication & Webhooks Integration Tests', () => {
 
       const verify = await app.inject({
         method: 'POST',
-        url: `/claim/${rawToken}/otp/verify`,
+        url: `/api/claim/${rawToken}/otp/verify`,
         payload: { otp },
       });
       expect(verify.statusCode).toBe(200);
@@ -282,7 +282,7 @@ describe('Apps/API Authentication & Webhooks Integration Tests', () => {
 
       const redeem = await app.inject({
         method: 'POST',
-        url: `/claim/${rawToken}/redeem`,
+        url: `/api/claim/${rawToken}/redeem`,
         payload: redeemPayload(body.sessionToken),
       });
       expect(redeem.statusCode).not.toBe(401);
