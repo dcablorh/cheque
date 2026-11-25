@@ -246,5 +246,6 @@ export function explorerTxUrl(
       ? `https://explorer.solana.com/tx/${txHash}`
       : `https://explorer.solana.com/tx/${txHash}?cluster=devnet`;
   }
-  return `https://stellar.expert/explorer/${mainnet ? 'public' : 'testnet'}/tx/${txHash}`;
+  // stellarchain.io serves testnet from a hostname prefix
+  return `${mainnet ? 'https://stellarchain.io' : 'https://testnet.stellarchain.io'}/tx/${txHash}`;
 }

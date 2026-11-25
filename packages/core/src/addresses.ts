@@ -131,7 +131,8 @@ export function validateDestinationAddress(chain: DestinationChain, address: str
 export function explorerAddressUrl(chain: DestinationChain, address: string, network: 'TESTNET' | 'PUBLIC' = 'TESTNET'): string {
   switch (chain) {
     case 'stellar':
-      return `https://stellar.expert/explorer/${network === 'PUBLIC' ? 'public' : 'testnet'}/account/${address}`;
+      // stellarchain.io serves testnet from a hostname prefix
+      return `${network === 'PUBLIC' ? 'https://stellarchain.io' : 'https://testnet.stellarchain.io'}/account/${address}`;
     case 'base':
       return network === 'PUBLIC'
         ? `https://basescan.org/address/${address}`
@@ -146,7 +147,7 @@ export function explorerAddressUrl(chain: DestinationChain, address: string, net
 export function explorerTxUrl(chain: DestinationChain, txHash: string, network: 'TESTNET' | 'PUBLIC' = 'TESTNET'): string {
   switch (chain) {
     case 'stellar':
-      return `https://stellar.expert/explorer/${network === 'PUBLIC' ? 'public' : 'testnet'}/tx/${txHash}`;
+      return `${network === 'PUBLIC' ? 'https://stellarchain.io' : 'https://testnet.stellarchain.io'}/tx/${txHash}`;
     case 'base':
       return network === 'PUBLIC'
         ? `https://basescan.org/tx/${txHash}`
