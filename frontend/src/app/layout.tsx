@@ -11,7 +11,7 @@ const mono = DM_Mono({ subsets: ['latin'], weight: ['400', '500'], variable: '--
 export const metadata: Metadata = {
   title: 'sencheq — if you can send a message, you can send money',
   description:
-    'Write a cheque, share the link, and whoever holds it can claim. If you can send a message, you can send money. Settled on Stellar.',
+    'Write a cheque, share the link, and whoever holds it can claim. If you can send a message, you can send money.',
 };
 
 export const viewport: Viewport = { themeColor: '#122315', width: 'device-width', initialScale: 1 };

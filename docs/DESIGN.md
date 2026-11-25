@@ -138,7 +138,7 @@ The cheque is the product. Keep it consistent everywhere (landing, new cheque pr
 
 - **Shape:** a long landscape ticket, 720px design width, scaled to fit its container by `ScaleToFit` (up to 1.25x). It never reflows or stacks on small screens.
 - **Surface:** warm cream `#f4efe0`, guilloche wave pattern at 16% opacity, thin inner border, radius 10px, `shadow-cheque`.
-- **Layout, top to bottom:** logo and "Cross-border cheque · Settled on Stellar" left; cheque number (`No. CHQ-XXXXXX`, mono) and date right; "Pay to the order of" with the payee in display type; currency code and a boxed amount on the right; the amount in words on its own line; memo left; signature right; a number strip at the bottom.
+- **Layout, top to bottom:** logo and "Cross-border cheque" left; cheque number (`No. CHQ-XXXXXX`, mono) and date right; "Pay to the order of" with the payee in display type; currency code and a boxed amount on the right; the amount in words on its own line; memo left; signature right; a number strip at the bottom.
 - **Amount in words** (`amountInWords`): spelled out with local units, no fractions. "Five hundred ninety dollars", "One thousand two hundred cedis and fifty pesewas", "Seventy-five thousand naira and one kobo". Blank until an amount is entered.
 - **Cheque number:** `CHQ-` plus 6 characters from `23456789ABCDEFGHJKLMNPQRSTUVWXYZ`. The preview number is the issued number.
 - **Date:** today on the preview, creation date afterwards. Format `13 Nov 2026`.

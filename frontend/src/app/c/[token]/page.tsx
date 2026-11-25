@@ -468,13 +468,13 @@ function Shell({ children }: { children: React.ReactNode }) {
       <div className="relative overflow-hidden bg-night pb-28 pt-5 text-paper">
         <div className="relative z-10 mx-auto flex h-10 max-w-xl items-center justify-between px-5">
           <Logo tone="light" />
-          <span className="eyebrow !text-[11px] text-brand-500">Held in Stellar escrow</span>
+          <span className="eyebrow !text-[11px] text-brand-500">Secured until claimed</span>
         </div>
         <CorridorMap className="pointer-events-none absolute inset-x-0 bottom-0 h-28 w-full" />
       </div>
       <main className="mx-auto -mt-16 max-w-xl px-5 pb-16">
         {children}
-        <p className="eyebrow mt-8 text-center !text-[10px] !tracking-[.14em] text-sage sm:!text-[11px] sm:!tracking-[.22em]">Secured by on-chain escrow on Stellar</p>
+        <p className="eyebrow mt-8 text-center !text-[10px] !tracking-[.14em] text-sage sm:!text-[11px] sm:!tracking-[.22em]">Secured by on-chain escrow</p>
       </main>
     </div>
   );

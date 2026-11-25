@@ -210,7 +210,7 @@ export function ChequePaper(props: {
           <div className="min-w-0">
             <Logo className="!text-[28px]" />
             <p className="mt-1 text-[10px] font-medium uppercase tracking-[.2em] text-night/60">
-              Cross-border cheque<span> · Settled on Stellar</span>
+              Cross-border cheque
             </p>
           </div>
           <div className="shrink-0 text-right">
