@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { CheckCircle2, ExternalLink, Clock, ShieldCheck, Smartphone, Wallet, XCircle } from 'lucide-react';
 import {
   ApiError,
+  detectDestinationChain,
   explorerTxUrl,
   fmtDate,
   fmtMoney,
@@ -179,13 +180,15 @@ export default function ClaimPage() {
     });
   };
 
-  const selectRail = (next: DestinationChain) => {
-    setChain(next);
-    setAddress('');
+  // The address picks the network: when detection changes, follow it and reset quote state.
+  const detectedChain = detectDestinationChain(address);
+  useEffect(() => {
+    if (!detectedChain || detectedChain === chain) return;
+    setChain(detectedChain);
     setQuote(null);
     setError('');
     idem.current = crypto.randomUUID();
-  };
+  }, [detectedChain, chain]);
 
   // Autofill Stellar address from connected wallet
   useEffect(() => {
@@ -313,6 +316,7 @@ export default function ClaimPage() {
   const requiresOtp = cheque.requiresEmailOtp ?? false;
   const rail = RAILS.find((r) => r.id === chain)!;
   const netTooLow = quote != null && chain !== 'stellar' && quote.sufficient === false;
+  const bridgingBlocked = !!detectedChain && detectedChain !== 'stellar' && !cctpAvailable;
 
   return (
     <Shell>
@@ -387,48 +391,31 @@ export default function ClaimPage() {
             <div>
               <h2 className="display">Where should it go?</h2>
               <p className="mt-1 text-sm text-ink-soft">
-                Funds start on Stellar. Claim to a Stellar USDC wallet, or bridge to Base or Solana in one step.
+                Paste any wallet address — we recognise the network automatically.
               </p>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-3">
-              {RAILS.map((r) => {
-                const selected = chain === r.id;
-                const disabled = (r.id === 'base' || r.id === 'solana') && !cctpAvailable;
-                return (
-                  <button
-                    key={r.id}
-                    type="button"
-                    onClick={() => !disabled && selectRail(r.id)}
-                    disabled={disabled}
-                    className={`rounded-[10px] p-4 text-left ${disabled ? 'opacity-50 cursor-not-allowed' : selected ? 'border-2 border-night bg-brand-50' : 'border border-ink/10 bg-ink/[.03]'}`}
-                    aria-pressed={selected}
-                    aria-disabled={disabled}
-                  >
-                    <Wallet className={`mb-2 h-5 w-5 ${selected ? 'text-brand-700' : 'text-ink-mute'}`} />
-                    <p className="font-semibold">{r.title}{disabled && ' (CCTP not configured)'}</p>
-                    <p className="text-xs text-ink-soft">{r.hint}</p>
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="rounded-[10px] border border-ink/10 bg-ink/[.03] p-4 opacity-60">
-              <Smartphone className="mb-2 h-5 w-5 text-ink-mute" />
-              <p className="font-semibold">{COUNTRIES[cheque.corridor ?? 'GH'].localRail}</p>
-              <p className="text-xs text-ink-soft">Coming soon</p>
-            </div>
-
             <div>
-              <label className="label" htmlFor="addr">{rail.title} address</label>
+              <label className="label flex items-center justify-between" htmlFor="addr">
+                <span>Wallet address</span>
+                {detectedChain && (
+                  <span
+                    className={`rounded-full px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[.14em] ${
+                      bridgingBlocked ? 'bg-sun/60 text-night' : 'bg-brand-100 text-brand-900'
+                    }`}
+                  >
+                    {rail.title} detected
+                  </span>
+                )}
+              </label>
               <div className="flex items-center gap-2">
-                <input id="addr" className="field font-mono text-sm flex-1" placeholder={rail.placeholder} spellCheck={false}
-                  autoCapitalize={chain === 'stellar' ? 'characters' : 'none'}
+                <input id="addr" className="field font-mono text-sm flex-1" placeholder="G… · 0x… · Solana address" spellCheck={false}
+                  autoCapitalize="none"
                   autoComplete="off" aria-invalid={addressTouched && !addressValid} aria-describedby="addr-help"
                   value={address} onChange={(e) => setAddress(e.target.value.trim())} />
                 {chain === 'stellar' && !walletAddress && !walletBusy && (
                   <button type="button" className="btn-ghost !px-3 !py-2" onClick={connect}>
-                    <Wallet className="h-4 w-4" /> Connect wallet
+                    <Wallet className="h-4 w-4" /> Connect
                   </button>
                 )}
                 {chain === 'stellar' && walletAddress && (
@@ -436,15 +423,25 @@ export default function ClaimPage() {
                 )}
               </div>
               <p id="addr-help" className={`mt-1.5 text-xs ${addressTouched && !addressValid ? 'font-semibold text-cedi' : 'text-ink-mute'}`}>
-                {addressTouched && !addressValid
-                  ? chain === 'stellar'
-                    ? `A Stellar address starts with G and has 56 characters. This one has ${address.length}.`
-                    : chain === 'base'
-                      ? 'Enter a 0x… EVM address (42 characters) on Base.'
-                      : 'Enter your Solana wallet address, not a token account or ATA.'
-                  : chain === 'stellar'
-                    ? 'Must be a Stellar account that already holds a USDC trustline.'
-                    : 'You do not need destination gas. The forwarding fee is taken from the USDC minted on the destination chain.'}
+                {!addressTouched
+                  ? 'Stellar (G…), Base (0x…) or Solana — the network is detected from the address itself.'
+                  : !detectedChain
+                    ? 'Unrecognised address. Expected Stellar (G…, 56 characters), Base (0x…, 42 characters) or a Solana wallet address.'
+                    : bridgingBlocked
+                      ? `${rail.title} payouts need bridging configured on this server. Use a Stellar (G…) address for now.`
+                      : rail.id === 'stellar'
+                        ? 'Stellar wallet detected. It must already hold a USDC trustline.'
+                        : rail.id === 'base'
+                          ? 'Base wallet detected. You do not need gas on Base — the forwarding fee is taken from the bridged USDC.'
+                          : 'Solana wallet detected. Paste your wallet address, not a token account or ATA.'}
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3 rounded-[10px] border border-ink/10 bg-ink/[.03] p-3.5 opacity-70">
+              <Smartphone className="h-5 w-5 shrink-0 text-ink-mute" aria-hidden />
+              <p className="text-sm">
+                <span className="font-semibold">{COUNTRIES[cheque.corridor ?? 'GH'].localRail}</span>
+                <span className="text-ink-mute"> — cash-out coming soon. USDC wallets work today.</span>
               </p>
             </div>
 
@@ -471,8 +468,8 @@ export default function ClaimPage() {
             )}
 
             <ErrorNote>{error}</ErrorNote>
-            <button className="btn-primary w-full py-4" disabled={busy || !addressValid || netTooLow}>
-              {busy && <Spinner />} Get my {chain === 'stellar' ? fmtMoney(cheque.amount, cheque.currency) : `${quote?.netUsdc ?? ''} USDC`}
+            <button className="btn-primary w-full py-4" disabled={busy || !addressValid || netTooLow || bridgingBlocked}>
+              {busy && <Spinner />} {bridgingBlocked ? 'Bridging unavailable' : `Get my ${chain === 'stellar' ? fmtMoney(cheque.amount, cheque.currency) : `${quote?.netUsdc ?? ''} USDC`}`}
             </button>
           </form>
         )}
