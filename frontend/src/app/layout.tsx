@@ -1,10 +1,11 @@
 import type { Metadata, Viewport } from 'next';
-import { Inter, Antonio, DM_Mono } from 'next/font/google';
+import { Inter, Anton, DM_Mono } from 'next/font/google';
 import './globals.css';
 import { WalletProviderWrapper } from '@/components/WalletProviderWrapper';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
-const display = Antonio({ subsets: ['latin'], weight: ['400', '700'], variable: '--font-display' });
+// Anton stands in for Deacon (Kikin's display face): black condensed grotesque, one weight.
+const display = Anton({ subsets: ['latin'], weight: '400', variable: '--font-display' });
 const mono = DM_Mono({ subsets: ['latin'], weight: ['400', '500'], variable: '--font-mono' });
 
 export const metadata: Metadata = {

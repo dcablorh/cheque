@@ -53,7 +53,7 @@ Rules:
 
 | Role | Font | Notes |
 |---|---|---|
-| Display | **Antonio** (stand-in for Deacon), 700, uppercase | `font-serif` in Tailwind maps to it. Use the `.display` class |
+| Display | **Anton** (stand-in for Deacon), its single black weight, uppercase | `font-serif` in Tailwind maps to it. Use the `.display` class — it sets no font-weight on purpose |
 | Body and UI | **Inter**, 400 and 500 | `font-sans` |
 | Codes, numbers on the cheque | **DM Mono**, 400 and 500 | `font-mono`. Cheque number, the number strip |
 | Signature (fallback) | Snell Roundhand / Segoe Script / Brush Script | Only on the cheque, when nothing is drawn |

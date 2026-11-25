@@ -48,7 +48,8 @@ body {
     @apply text-[12px] font-medium uppercase tracking-[.22em];
   }
   .display {
-    @apply font-serif font-bold uppercase leading-[.85] tracking-[-.01em];
+    /* Anton is a single black weight — no font-bold here or it faux-bolds */
+    @apply font-serif uppercase leading-[.85] tracking-[-.01em];
   }
 }
 
