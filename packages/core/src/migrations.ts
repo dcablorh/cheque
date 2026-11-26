@@ -248,7 +248,9 @@ ALTER TABLE users DROP CONSTRAINT IF EXISTS users_contact_check;
 ALTER TABLE users DROP COLUMN IF EXISTS phone_e164;
 -- webhook_events was only used by the removed WhatsApp/SMS webhook receivers
 DROP TABLE IF EXISTS webhook_events;
-ALTER TABLE users ADD CONSTRAINT users_contact_check CHECK (email IS NOT NULL);
+-- NOT VALID: keep legacy rows that predate email login (they have no email),
+-- while enforcing the requirement on every new or updated row.
+ALTER TABLE users ADD CONSTRAINT users_contact_check CHECK (email IS NOT NULL) NOT VALID;
 
 ALTER TABLE cheques ADD COLUMN IF NOT EXISTS currency VARCHAR(3) NOT NULL DEFAULT 'GHS';
 ALTER TABLE cheques DROP CONSTRAINT IF EXISTS cheques_currency_check;
@@ -283,6 +285,43 @@ ALTER TABLE payouts ADD COLUMN IF NOT EXISTS iris_message JSONB;
 ALTER TABLE payouts ADD COLUMN IF NOT EXISTS cctp_forward_tx VARCHAR(128);
 `;
 
+const MIGRATION_LOCK_TIMEOUT = '3s';
+const MIGRATION_LOCK_RETRIES = 12;
+const MIGRATION_LOCK_RETRY_DELAY_MS = 500;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export async function runMigrations(clientOrPool: pg.Pool | pg.PoolClient): Promise<void> {
-  await clientOrPool.query(SCHEMA_SQL);
+  // The schema runs as one implicit transaction that holds strong locks from
+  // its first statement onward. If another connection (e.g. an outbox handler
+  // mid-flight) holds a lock this script needs while waiting on a lock we
+  // already took, Postgres cannot detect the cycle and both hang forever.
+  // Fail fast on lock waits and retry instead: aborting releases our locks,
+  // unblocks the other party, and the next attempt succeeds.
+  const canCheckout = typeof (clientOrPool as pg.Pool).connect === 'function';
+  const client: pg.Pool | pg.PoolClient = canCheckout
+    ? await (clientOrPool as pg.Pool).connect()
+    : clientOrPool;
+  try {
+    await client.query(`SET lock_timeout = '${MIGRATION_LOCK_TIMEOUT}'`);
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await client.query(SCHEMA_SQL);
+        return;
+      } catch (err) {
+        const code = (err as { code?: string }).code;
+        const retryable = code === '55P03' || code === '40001' || code === '40P01';
+        if (!retryable || attempt >= MIGRATION_LOCK_RETRIES || !canCheckout) {
+          throw err;
+        }
+        await sleep(MIGRATION_LOCK_RETRY_DELAY_MS * attempt);
+      }
+    }
+  } finally {
+    // Never leak lock_timeout onto a pooled connection reused by the app.
+    await client.query(`SET lock_timeout = '0'`).catch(() => {});
+    if (canCheckout) (client as pg.PoolClient).release();
+  }
 }

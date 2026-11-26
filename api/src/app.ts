@@ -109,9 +109,11 @@ export async function buildApp() {
   });
   await emailOtpService.init();
 
-  // Local development/tests without Resend credentials: capture codes instead of failing.
-  // Never active in production, and only when no email API key is configured.
-  const devConsoleEmail = (env.NODE_ENV === 'development' || env.NODE_ENV === 'test') && !env.EMAIL_API_KEY;
+  // Tests always capture codes locally (never hit a real email provider).
+  // Development captures only when no email API key is configured.
+  // Never active in production.
+  const devConsoleEmail =
+    env.NODE_ENV === 'test' || (env.NODE_ENV === 'development' && !env.EMAIL_API_KEY);
   const outboundEmail: { to: string; subject: string; text: string }[] = [];
   const emailClient = devConsoleEmail
     ? ({
@@ -251,7 +253,7 @@ ${params.text}
   });
 
   // Rotate Refresh Token -> Returns new Access Token + Rotating Refresh Token
-  app.post<{
+  apiApp.post<{
     Body: {
       refreshToken: string;
     };
