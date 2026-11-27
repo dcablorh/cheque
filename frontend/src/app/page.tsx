@@ -12,6 +12,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { ChequePaper, CorridorMap, Logo, Patch } from '@/components/ui';
+import { Flag } from '@/components/Flag';
 import { Reveal } from '@/components/Reveal';
 
 const CHANNELS = ['WhatsApp', 'Telegram', 'Instagram', 'Messenger', 'iMessage', 'SMS', 'Email'];
@@ -41,21 +42,23 @@ const STEPS = [
 
 /** Corridors live today, in cheque order. */
 const LIVE_COUNTRIES = [
-  { code: 'GH', name: 'Ghana', flag: '🇬🇭', currency: 'GHS', symbol: '₵', local: 'Mobile Money', note: 'MTN, Telecel and AT' },
-  { code: 'NG', name: 'Nigeria', flag: '🇳🇬', currency: 'NGN', symbol: '₦', local: 'Bank transfer', note: 'Any Nigerian bank account' },
-  { code: 'US', name: 'United States', flag: '🇺🇸', currency: 'USD', symbol: '$', local: 'Bank transfer (ACH)', note: 'Routing and account number' },
+  { code: 'GH', name: 'Ghana', currency: 'GHS', symbol: '₵', local: 'Mobile Money', note: 'MTN, Telecel and AT' },
+  { code: 'NG', name: 'Nigeria', currency: 'NGN', symbol: '₦', local: 'Bank transfer', note: 'Any Nigerian bank account' },
+  { code: 'US', name: 'United States', currency: 'USD', symbol: '$', local: 'Bank transfer (ACH)', note: 'Routing and account number' },
 ];
+
+const LIVE_CODES = new Set<string>(LIVE_COUNTRIES.map((c) => c.code));
 
 /** Corridors on the roadmap — the ticker and the waitlist row are built for this list to grow. */
 const COMING_COUNTRIES = [
-  { name: 'Kenya', flag: '🇰🇪', currency: 'KES' },
-  { name: 'United Kingdom', flag: '🇬🇧', currency: 'GBP' },
-  { name: 'Philippines', flag: '🇵🇭', currency: 'PHP' },
-  { name: 'South Africa', flag: '🇿🇦', currency: 'ZAR' },
-  { name: 'India', flag: '🇮🇳', currency: 'INR' },
-  { name: 'Brazil', flag: '🇧🇷', currency: 'BRL' },
-  { name: 'Eurozone', flag: '🇪🇺', currency: 'EUR' },
-  { name: 'Canada', flag: '🇨🇦', currency: 'CAD' },
+  { code: 'KE', name: 'Kenya', currency: 'KES' },
+  { code: 'GB', name: 'United Kingdom', currency: 'GBP' },
+  { code: 'PH', name: 'Philippines', currency: 'PHP' },
+  { code: 'ZA', name: 'South Africa', currency: 'ZAR' },
+  { code: 'IN', name: 'India', currency: 'INR' },
+  { code: 'BR', name: 'Brazil', currency: 'BRL' },
+  { code: 'EU', name: 'Eurozone', currency: 'EUR' },
+  { code: 'CA', name: 'Canada', currency: 'CAD' },
 ];
 
 const FEATURES = [
@@ -236,7 +239,7 @@ export default function Home() {
           >
             <div className="marquee-track">
               {[...LIVE_COUNTRIES, ...COMING_COUNTRIES, ...LIVE_COUNTRIES, ...COMING_COUNTRIES].map((c, i) => {
-                const live = 'code' in c;
+                const live = LIVE_CODES.has(c.code);
                 return (
                   <span
                     key={`${c.name}-${i}`}
@@ -244,7 +247,7 @@ export default function Home() {
                       live ? 'border-brand-500/70 bg-night-800' : 'border-sage/40 bg-transparent opacity-70'
                     }`}
                   >
-                    <span className="text-lg" aria-hidden>{c.flag}</span>
+                    <Flag code={c.code} title={c.name} className="h-[19px] w-[28.5px] shadow-[0_1px_2px_rgba(0,0,0,.45)]" />
                     <span className="display text-[17px] !leading-none">{c.name}</span>
                     <span className={`text-[11px] font-medium uppercase tracking-[.18em] ${live ? 'text-brand-500' : 'text-moss'}`}>
                       {c.currency}

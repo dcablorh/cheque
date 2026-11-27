@@ -22,6 +22,7 @@ import { WalletButton } from '@/components/WalletButton';
 import { shortAddress, useWallet } from '@/lib/wallet';
 import { ChequePaper, DotsLoader, ErrorNote, Logo, Patch, Skeleton, Spinner, StatusPill, SuccessNote } from '@/components/ui';
 import { COUNTRIES, COUNTRY_LIST, type CountryCode } from '@/lib/countries';
+import { Flag } from '@/components/Flag';
 
 const LINKS_KEY = 'cheque.links.v1';
 const readLinks = (): Record<string, string> => {
@@ -477,12 +478,19 @@ function NewCheque({
         <div className="space-y-3">
         <div>
           <label className="label !mb-1 !text-[10px]" htmlFor="corridor">Sending to</label>
-          <select id="corridor" className={`field ${input}`} value={corridor}
-            onChange={(e) => { setCorridor(e.target.value as CountryCode); setAmount(''); }}>
-            {config.corridors.map((x) => (
-              <option key={x.code} value={x.code}>{COUNTRIES[x.code].flag} {x.name} · {x.currency}</option>
-            ))}
-          </select>
+          <div className="relative">
+            <Flag
+              code={corridor}
+              title={country.name}
+              className="pointer-events-none absolute left-3 top-1/2 h-[15px] w-[22px] -translate-y-1/2"
+            />
+            <select id="corridor" className={`field ${input} !pl-9`} value={corridor}
+              onChange={(e) => { setCorridor(e.target.value as CountryCode); setAmount(''); }}>
+              {config.corridors.map((x) => (
+                <option key={x.code} value={x.code}>{x.name} · {x.currency}</option>
+              ))}
+            </select>
+          </div>
         </div>
 
         <div>

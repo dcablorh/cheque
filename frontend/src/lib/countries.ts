@@ -4,6 +4,7 @@ export type CountryCode = 'GH' | 'NG' | 'US';
 export interface Country {
   code: CountryCode;
   name: string;
+  /** Emoji flag. Only for data/logs — render visuals with <Flag code={code} />, since Windows has no flag emoji glyphs. */
   flag: string;
   currency: 'GHS' | 'NGN' | 'USD';
   symbol: string;
